@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from art/isha.svg. isha's mascot: a chibi girl with space buns. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M29,32.6a7,7 0 1,0 14,0a7,7 0 1,0 -14,0Z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M65,32.6a7,7 0 1,0 14,0a7,7 0 1,0 -14,0Z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M29,58C29,41 40,30 54,30C68,30 79,41 79,58L79,72C79,75.5 76.5,77 74,75.5L72,74L36,74L34,75.5C31.5,77 29,75.5 29,72ZM35.4,60a18.6,17.2 0 1,0 37.2,0a18.6,17.2 0 1,0 -37.2,0Z"
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd" />
+    <path
+        android:pathData="M33,63C31,46 40.5,34.5 54,34.5C67.5,34.5 77,46 75,63C73.4,60 72.2,56.5 71.6,52.5Q68.6,50 66.4,46.2Q63.4,52.5 58.6,54Q57.2,49.5 54.6,46.4Q51.6,52 46.2,53.6Q44.6,49.8 42.6,47.6Q40.2,52 36.4,53C35.8,56.8 34.6,60.2 33,63Z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M43.1,63.2a3.5,4.5 0 1,0 7,0a3.5,4.5 0 1,0 -7,0Z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M57.9,63.2a3.5,4.5 0 1,0 7,0a3.5,4.5 0 1,0 -7,0Z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M51.2,70.2Q54,73.4 56.8,70.2"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+</vector>

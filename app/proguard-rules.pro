@@ -1,0 +1,7 @@
+-dontwarn org.jsoup.**
+-keepattributes *Annotation*, InnerClasses
+-keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
+-keepclasseswithmembers class kotlinx.serialization.json.** { kotlinx.serialization.KSerializer serializer(...); }
+-keep,includedescriptorclasses class dev.jasper.ishav2.**$$serializer { *; }
+-keepclassmembers class dev.jasper.ishav2.** { *** Companion; }
+-keepclasseswithmembers class dev.jasper.ishav2.** { kotlinx.serialization.KSerializer serializer(...); }

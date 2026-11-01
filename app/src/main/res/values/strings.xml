@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">isha</string>
+    <string name="notification_channel">isha notifications</string>
+    <string name="notification_channel_desc">Inbox updates from isha and your connected apps</string>
+    <string name="chat_channel_work">Assistant work</string>
+    <string name="chat_channel_work_desc">Shown while isha is working on a reply</string>
+    <string name="chat_channel_replies">Replies</string>
+    <string name="chat_channel_replies_desc">isha\'s answers when the app is in the background</string>
+    <string name="chat_work_title">isha is on it</string>
+    <string name="chat_work_text">Working on your reply…</string>
+    <string name="reminder_channel">Reminders</string>
+    <string name="reminder_channel_desc">Reminders you asked isha to set</string>
+    <string name="briefing_channel">Daily briefing</string>
+    <string name="briefing_channel_desc">Your morning summary of calendar, email and tasks</string>
+    <string name="download_channel">Model downloads</string>
+    <string name="download_channel_desc">Progress while an offline model downloads</string>
+    <string name="budget_channel">Budget alerts</string>
+    <string name="budget_channel_desc">When a category nears or passes its monthly budget</string>
+</resources>

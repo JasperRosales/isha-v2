@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
+        <exclude domain="sharedpref" path="isha_secure.xml" />
+        <exclude domain="file" path="conversations/" />
+        <exclude domain="file" path="attachments/" />
+        <exclude domain="file" path="notifications.json" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="isha_secure.xml" />
+        <exclude domain="file" path="attachments/" />
+    </device-transfer>
+</data-extraction-rules>
