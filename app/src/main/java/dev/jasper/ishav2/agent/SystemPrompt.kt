@@ -105,7 +105,8 @@ fun buildOfflinePrompt(
         if (facts.isNotBlank()) append("About the user:\n$facts\n")
         if (!extraContext.isNullOrBlank()) {
             append("$extraContext\n")
-            append("(Budget entries are logged when the user writes things like \"spent 150 on lunch\" or \"set food budget to 3000\".)\n")
+            append("Use only these budget numbers; never invent amounts, limits or categories that aren't listed. ")
+            append("If something isn't set (like a monthly budget), say so. The user can log money by writing \"spent 150 on lunch\" or \"set food budget to 3000\".\n")
         }
     }
 

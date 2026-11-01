@@ -20,8 +20,9 @@ The app is intentionally small in surface area and large in capability: a chat d
 
 - **Personal-assistant brain.** The system prompt is tuned for running your day (inbox, calendar, tasks, school/work, reminders), not for coding, and tells the model how to drive Composio's search → schema → multi-execute flow.
 - **Offline mode.** Download a small on-device model (Qwen 2.5 1.5B/0.5B, Gemma 3 1B, Phi-4 mini) or import any MediaPipe `.task` file. **Automatic** mode uses Gemini online and the local model offline, and falls back on-device if Gemini becomes unreachable mid-chat.
+- **Claude as a backup brain.** Gemini always answers first. Add an optional Claude API key in Settings and, when Gemini's free quota runs out (or Gemini errors), the same reply continues on Claude with full tool access. isha then skips Gemini until its quota resets (midnight Pacific for the daily limit). Claude usage is billed to your Anthropic API credits.
 - **Push notifications.** Replies that finish while you are away arrive as chat-style notifications with an inline **Reply** box; reminders fire at the exact time (and survive reboots); an optional **daily briefing** summarises calendar, email and tasks each morning.
-- **Budget tracking (works offline).** Log spending and income by chat ("spent 150 on lunch", "got 3k allowance", "set food budget to 3000", "how much is left?") or from the **Budget** screen. Monthly and per-category limits, 80%/over-budget push alerts, month history. Budget commands work with no network and even with no model downloaded.
+- **Budget tracking (works offline).** Log spending and income by chat ("spent 150 on lunch", "got 3k allowance", "set food budget to 3000", "how much is left?") or from the **Budget** screen. Monthly and per-category limits, 80%/over-budget push alerts, month history, and an all-time balance (all income minus all spending). Budget commands work with no network and even with no model downloaded.
 - **Memory.** isha saves lasting facts you tell it (`remember_fact` / `forget_fact`); you can review and delete them in Settings.
 - **Fluid chat.** The list follows the streaming reply only while you are at the bottom, pauses when you scroll up, and offers a "Latest" button to jump back.
 - **Streaming chat with Gemini** using `streamGenerateContent?alt=sse`, function calling, and tool-result continuation.
@@ -32,12 +33,13 @@ The app is intentionally small in surface area and large in capability: a chat d
 - **Local-first history**: conversations, attachments, and the inbox are files on the device. There is no isha server and no account system.
 - **Neumorphic cream/espresso interface** with a light/dark switch, a drawer of conversations, an apps screen, an inbox, an offline-models screen, and first-run setup.
 - **Mascot icon and splash.** A chibi girl with space buns (`art/isha.svg`) is the adaptive/themed launcher icon, the in-app avatar and the notification avatar; a short animated greeting follows the system splash on cold start.
-- **Encrypted keys.** The Gemini and Composio keys are encrypted with AES/GCM using a key held by the Android Keystore. Keys are entered in the app, not baked into the APK or the repository.
+- **Encrypted keys.** The Gemini, Claude and Composio keys are encrypted with AES/GCM using a key held by the Android Keystore. Keys are entered in the app, not baked into the APK or the repository.
 
 ## Requirements
 
 - Android 8.0 (API 26) or newer.
 - A Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey). The default model is `gemini-3.5-flash-lite`; you can change it in Settings. Optional if you only use offline mode.
+- Optional: a Claude API key from the [Anthropic Console](https://console.anthropic.com/settings/keys) as a paid backup when Gemini's free limit is used up.
 - A Composio key from [dashboard.composio.dev](https://dashboard.composio.dev):
   - `ck_…` — **Connect MCP** (recommended; verified with the current consumer key). Uses `https://connect.composio.dev/mcp`.
   - `ak_…` — **REST project key** (v3.1 tool-router sessions). Uses `https://backend.composio.dev/api/v3.1`.

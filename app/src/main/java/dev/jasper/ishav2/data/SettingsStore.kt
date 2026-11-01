@@ -21,6 +21,9 @@ data class AppSettings(
     val geminiKey: String = "",
     val composioKey: String = "",
     val model: String = DEFAULT_MODEL,
+    /** Backup brain: used when Gemini's free quota runs out or Gemini fails. */
+    val claudeKey: String = "",
+    val claudeModel: String = DEFAULT_CLAUDE_MODEL,
     val approvalMode: ApprovalMode = ApprovalMode.MANUAL,
     val maxSteps: Int = DEFAULT_MAX_STEPS,
     val userId: String = "",
@@ -43,10 +46,14 @@ data class AppSettings(
     val briefingMinute: Int = 30
 ) {
     val hasGeminiKey: Boolean get() = geminiKey.isNotBlank()
+    val hasClaudeKey: Boolean get() = claudeKey.isNotBlank()
+
+    /** Any cloud brain is configured (Gemini first, Claude as backup). */
+    val hasCloudKey: Boolean get() = hasGeminiKey || hasClaudeKey
     val hasLocalModel: Boolean get() = !localModelId.isNullOrBlank()
 
-    /** True when the app can answer at all: a Gemini key or an on-device model. */
-    val canChat: Boolean get() = hasGeminiKey || hasLocalModel
+    /** True when the app can answer at all: a cloud key or an on-device model. */
+    val canChat: Boolean get() = hasCloudKey || hasLocalModel
     val hasComposioKey: Boolean get() = composioKey.isNotBlank()
 
     val composioMode: ComposioKeyMode
@@ -60,6 +67,12 @@ data class AppSettings(
     companion object {
         const val DEFAULT_MODEL = "gemini-3.5-flash-lite"
         const val DEFAULT_MAX_STEPS = 20
+        const val DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5"
+        val CLAUDE_MODEL_SUGGESTIONS = listOf(
+            "claude-haiku-5-5",
+            "claude-sonnet-5-5",
+            "claude-opus-5-5"
+        )
         val MODEL_SUGGESTIONS = listOf(
             "gemini-3.5-flash-lite",
             "gemini-3.5-flash",
@@ -84,6 +97,17 @@ class SettingsStore(context: Context) {
     fun saveComposioKey(value: String) {
         secure.put(KEY_COMPOSIO, value.trim())
         _settings.value = current.copy(composioKey = value.trim())
+    }
+
+    fun saveClaudeKey(value: String) {
+        secure.put(KEY_CLAUDE, value.trim())
+        _settings.value = current.copy(claudeKey = value.trim())
+    }
+
+    fun setClaudeModel(value: String) {
+        val model = value.trim().ifBlank { AppSettings.DEFAULT_CLAUDE_MODEL }
+        prefs.edit().putString(KEY_CLAUDE_MODEL, model).apply()
+        _settings.value = current.copy(claudeModel = model)
     }
 
     fun setModel(value: String) {
@@ -215,6 +239,9 @@ class SettingsStore(context: Context) {
             geminiKey = secure.get(KEY_GEMINI).orEmpty(),
             composioKey = secure.get(KEY_COMPOSIO).orEmpty(),
             model = model,
+            claudeKey = secure.get(KEY_CLAUDE).orEmpty(),
+            claudeModel = prefs.getString(KEY_CLAUDE_MODEL, null)
+                ?.takeIf { it.isNotBlank() } ?: AppSettings.DEFAULT_CLAUDE_MODEL,
             approvalMode = approval,
             maxSteps = prefs.getInt(KEY_MAX_STEPS, AppSettings.DEFAULT_MAX_STEPS),
             userId = userId,
@@ -246,6 +273,8 @@ class SettingsStore(context: Context) {
         const val KEY_GEMINI = "gemini_key"
         const val KEY_COMPOSIO = "composio_key"
         const val KEY_MODEL = "model"
+        const val KEY_CLAUDE = "claude_key"
+        const val KEY_CLAUDE_MODEL = "claude_model"
         const val KEY_APPROVAL = "approval_mode"
         const val KEY_MAX_STEPS = "max_steps"
         const val KEY_USER_ID = "user_id"

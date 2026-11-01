@@ -24,6 +24,9 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     private val _testingGemini = MutableStateFlow(false)
     val testingGemini = _testingGemini.asStateFlow()
 
+    private val _testingClaude = MutableStateFlow(false)
+    val testingClaude = _testingClaude.asStateFlow()
+
     private val _testingComposio = MutableStateFlow(false)
     val testingComposio = _testingComposio.asStateFlow()
 
@@ -36,6 +39,43 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun saveGeminiKey(value: String) {
         container.settings.saveGeminiKey(value)
         _events.tryEmit(if (value.isBlank()) "Gemini key removed." else "Gemini key saved.")
+    }
+
+    fun saveClaudeKey(value: String) {
+        container.settings.saveClaudeKey(value)
+        _events.tryEmit(if (value.isBlank()) "Claude key removed." else "Claude key saved · used when Gemini's limit is reached.")
+    }
+
+    fun setClaudeModel(value: String) {
+        container.settings.setClaudeModel(value)
+        _events.tryEmit("Backup model set to ${container.settings.current.claudeModel}")
+    }
+
+    fun testClaude() {
+        if (_testingClaude.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _testingClaude.value = true
+            try {
+                val messages = kotlinx.serialization.json.buildJsonArray {
+                    add(kotlinx.serialization.json.buildJsonObject {
+                        put("role", kotlinx.serialization.json.JsonPrimitive("user"))
+                        put("content", kotlinx.serialization.json.JsonPrimitive("Reply with just: ok"))
+                    })
+                }
+                container.claude.stream(
+                    system = "You are a connection test.",
+                    messages = messages,
+                    tools = null,
+                    onText = {},
+                    onToolUse = {}
+                )
+                _events.emit("Claude works · ${container.claude.model}")
+            } catch (error: Exception) {
+                _events.emit(error.message ?: "Claude test failed.")
+            } finally {
+                _testingClaude.value = false
+            }
+        }
     }
 
     fun saveComposioKey(value: String) {

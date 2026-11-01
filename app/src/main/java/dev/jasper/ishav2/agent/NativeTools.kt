@@ -391,6 +391,10 @@ class NativeTools(
                 }
             })
             put("transaction_count", s.transactions.size)
+            val all = budget.allTime()
+            put("all_time_income", formatMoney(c, all.income))
+            put("all_time_spent", formatMoney(c, all.expense))
+            put("all_time_balance", formatMoney(c, all.balance))
         }.toString()
     }
 

@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -33,6 +34,10 @@ class BudgetViewModel(private val container: AppContainer) : ViewModel() {
 
     val summary = combine(store.data, _month) { data, month -> BudgetStore.summarize(data, month) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), store.summary())
+
+    /** All-time totals, independent of the month being viewed. */
+    val allTime = store.data.map { BudgetStore.allTimeOf(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), store.allTime())
 
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val events = _events.asSharedFlow()

@@ -540,6 +540,7 @@ private fun topSubtitle(
     busy -> "typing…"
     brain is Brain.Local -> "Offline · ${brain.model.name}"
     brain is Brain.Missing -> "Not set up yet"
+    brain is Brain.Claude -> if (connected) "Online · Claude (backup) · $toolCount app tools" else "Online · Claude (backup)"
     connected -> "Online · $toolCount app tools ready"
     hasError -> "Online · apps not connected"
     else -> "Online · Gemini"

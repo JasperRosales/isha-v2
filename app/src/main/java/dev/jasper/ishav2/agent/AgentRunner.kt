@@ -18,6 +18,7 @@ import dev.jasper.ishav2.data.SettingsStore
 import dev.jasper.ishav2.data.ToolStatus
 import dev.jasper.ishav2.data.plainText
 import dev.jasper.ishav2.net.ApiException
+import dev.jasper.ishav2.net.ClaudeClient
 import dev.jasper.ishav2.net.ComposioManager
 import dev.jasper.ishav2.net.GeminiChunk
 import dev.jasper.ishav2.net.GeminiClient
@@ -33,9 +34,15 @@ import dev.jasper.ishav2.net.GeminiTool
 import dev.jasper.ishav2.net.Http
 import dev.jasper.ishav2.net.SchemaSanitizer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.File
@@ -44,6 +51,7 @@ import java.util.UUID
 class AgentRunner(
     private val settings: SettingsStore,
     private val gemini: GeminiClient,
+    private val claude: ClaudeClient,
     private val composio: ComposioManager,
     private val nativeTools: NativeTools,
     private val approvals: ApprovalBroker,
@@ -58,24 +66,60 @@ class AgentRunner(
         suspend fun onPersist()
     }
 
+    /**
+     * Until when Gemini is skipped (epoch ms) because its free quota ran out.
+     * While it is in the future, cloud replies go straight to Claude instead
+     * of burning a request on another 429.
+     */
+    private val _geminiLimitedUntil = MutableStateFlow(0L)
+    val geminiLimitedUntil: StateFlow<Long> = _geminiLimitedUntil.asStateFlow()
+
+    private fun geminiLimited(): Boolean = System.currentTimeMillis() < _geminiLimitedUntil.value
+
+    /** Gemini first; Claude when Gemini has no key or is rate-limited. */
+    private fun cloudBrain(): Brain? {
+        val current = settings.current
+        return when {
+            current.hasGeminiKey && !(geminiLimited() && current.hasClaudeKey) -> Brain.Gemini
+            current.hasClaudeKey -> Brain.Claude
+            else -> null
+        }
+    }
+
     /** Which brain the next reply will use, for the chat header. */
     fun plannedBrain(): Brain {
         val current = settings.current
         val local = models.active()
+        val cloud = cloudBrain()
         return when (current.brainMode) {
             BrainMode.OFFLINE -> if (local != null) Brain.Local(local) else Brain.Missing(
                 "Offline mode is on, but no on-device model is selected. Download one in Offline models."
             )
-            BrainMode.ONLINE -> if (current.hasGeminiKey) Brain.Gemini else Brain.Missing(
-                "Add a Gemini API key in Settings, or switch to offline mode."
+            BrainMode.ONLINE -> cloud ?: Brain.Missing(
+                "Add a Gemini (or backup Claude) API key in Settings, or switch to offline mode."
             )
             BrainMode.AUTO -> when {
-                current.hasGeminiKey && network.isOnline() -> Brain.Gemini
+                cloud != null && network.isOnline() -> cloud
                 local != null -> Brain.Local(local)
-                current.hasGeminiKey -> Brain.Gemini
+                cloud != null -> cloud
                 else -> Brain.Missing("Add a Gemini API key, or download an offline model.")
             }
         }
+    }
+
+    /** Gemini failed in a way Claude can cover: quota, outage, or a Gemini-only network problem. */
+    private fun shouldFailOver(error: Exception): Boolean {
+        if (!settings.current.hasClaudeKey) return false
+        return when (error) {
+            is ApiException -> error.code == 429 || error.code >= 500
+            is IOException -> network.isOnline()
+            else -> false
+        }
+    }
+
+    private fun markGeminiLimited(error: Exception) {
+        val backoff = (error as? ApiException)?.retryAfterMs ?: if ((error as? ApiException)?.code == 429) 60_000L else 30_000L
+        _geminiLimitedUntil.value = System.currentTimeMillis() + backoff
     }
 
     /**
@@ -109,8 +153,9 @@ class AgentRunner(
                 listener.onPersist()
                 return
             }
-            Brain.Gemini -> Unit
+            Brain.Gemini, Brain.Claude -> Unit
         }
+        var provider: Brain = plannedBrain()
 
         var currentModel: ChatMessage? = null
         try {
@@ -122,7 +167,7 @@ class AgentRunner(
                     role = Role.MODEL,
                     parts = mutableListOf(),
                     status = MessageStatus.STREAMING,
-                    brain = "Gemini"
+                    brain = if (provider == Brain.Claude) "Claude" else "Gemini"
                 )
                 currentModel = modelMessage
                 conversation.messages += modelMessage
@@ -137,7 +182,24 @@ class AgentRunner(
                     }
                 }
 
-                val calls = streamModel(conversation, modelMessage, listener)
+                val calls = try {
+                    if (provider == Brain.Claude) streamClaude(conversation, modelMessage, listener)
+                    else streamGemini(conversation, modelMessage, listener)
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    // Gemini's free limit is spent (or Gemini is down): hand this
+                    // same step to Claude. The conversation so far, tool calls
+                    // included, carries over.
+                    if (provider == Brain.Gemini && modelMessage.parts.isEmpty() && shouldFailOver(error)) {
+                        markGeminiLimited(error)
+                        conversation.messages.remove(modelMessage)
+                        listener.onUpdate()
+                        provider = Brain.Claude
+                        step--
+                        continue
+                    }
+                    throw error
+                }
                 modelMessage.status = MessageStatus.DONE
                 if (calls.isEmpty()) {
                     listener.onPersist()
@@ -212,7 +274,12 @@ class AgentRunner(
                 model = model,
                 memory = memory.facts.value,
                 countTokens = { localLlm.countTokens(model, it) },
-                extraContext = budgetAssistant.snapshotForPrompt()
+                // Only money questions get the budget; otherwise small models
+                // fixate on it and answer everything like a budget tracker.
+                extraContext = conversation.messages.lastOrNull { it.role == Role.USER }
+                    ?.plainText()
+                    ?.takeIf { BudgetParser.isMoneyTalk(it) }
+                    ?.let { budgetAssistant.snapshotForPrompt() }
             )
             var lastUpdate = 0L
             val reply = localLlm.generate(model, prompt) { token ->
@@ -264,15 +331,11 @@ class AgentRunner(
     private fun isNetworkError(error: Exception): Boolean =
         error !is ApiException && (error is IOException || !network.isOnline())
 
-    private suspend fun streamModel(
-        conversation: Conversation,
-        modelMessage: ChatMessage,
-        listener: Listener
-    ): List<Part.ToolCall> {
-        val calls = mutableListOf<Part.ToolCall>()
-        var finishReason: String? = null
-        var lastUpdate = 0L
+    /** Streams text into [message], throttling UI updates. */
+    private class Streamer(private val message: ChatMessage, private val listener: Listener) {
+        private var lastUpdate = 0L
         var visibleText = false
+            private set
 
         fun tick(force: Boolean = false) {
             val now = System.currentTimeMillis()
@@ -282,28 +345,45 @@ class AgentRunner(
             }
         }
 
-        fun appendText(value: String, thought: Boolean) {
+        fun appendText(value: String, thought: Boolean = false) {
             if (value.isEmpty() || thought) return
             visibleText = true
-            val last = modelMessage.parts.lastOrNull()
+            val last = message.parts.lastOrNull()
             if (last is Part.Text && !last.thought) {
-                modelMessage.parts[modelMessage.parts.lastIndex] = last.copy(text = last.text + value)
+                message.parts[message.parts.lastIndex] = last.copy(text = last.text + value)
             } else {
-                modelMessage.parts += Part.Text(value)
+                message.parts += Part.Text(value)
             }
             tick()
         }
+    }
 
-        val tools = (nativeTools.declarations() + composio.declarations())
+    private data class ToolSpec(val name: String, val description: String, val schema: JsonObject)
+
+    private fun toolSpecs(): List<ToolSpec> =
+        (nativeTools.declarations() + composio.declarations())
             .distinctBy { it.name }
             .map { tool ->
-                GeminiFunctionDeclaration(
+                ToolSpec(
                     name = tool.name,
                     description = tool.description.take(2000),
-                    parameters = runCatching { SchemaSanitizer.sanitize(tool.inputSchema) }
+                    schema = runCatching { SchemaSanitizer.sanitize(tool.inputSchema) }
                         .getOrElse { buildJsonObject { } }
                 )
             }
+
+    private suspend fun streamGemini(
+        conversation: Conversation,
+        modelMessage: ChatMessage,
+        listener: Listener
+    ): List<Part.ToolCall> {
+        val calls = mutableListOf<Part.ToolCall>()
+        var finishReason: String? = null
+        val streamer = Streamer(modelMessage, listener)
+        fun tick(force: Boolean = false) = streamer.tick(force)
+        fun appendText(value: String, thought: Boolean) = streamer.appendText(value, thought)
+
+        val tools = toolSpecs().map { GeminiFunctionDeclaration(it.name, it.description, it.schema) }
 
         val history = conversation.messages.dropLast(1)
         val request = GeminiRequest(
@@ -358,10 +438,157 @@ class AgentRunner(
             "SAFETY", "RECITATION", "PROHIBITED_CONTENT" ->
                 throw ApiException(400, "Gemini stopped this reply ($finishReason).")
         }
-        if (calls.isEmpty() && !visibleText && modelMessage.error == null) {
+        if (calls.isEmpty() && !streamer.visibleText && modelMessage.error == null) {
             throw ApiException(502, "Gemini returned an empty reply. Try again.")
         }
         return calls
+    }
+
+    /** Same turn as [streamGemini], answered by Claude (the backup brain). */
+    private suspend fun streamClaude(
+        conversation: Conversation,
+        modelMessage: ChatMessage,
+        listener: Listener
+    ): List<Part.ToolCall> {
+        val calls = mutableListOf<Part.ToolCall>()
+        val streamer = Streamer(modelMessage, listener)
+        val tools = buildJsonArray {
+            for (tool in toolSpecs()) {
+                add(buildJsonObject {
+                    put("name", tool.name)
+                    put("description", tool.description.ifBlank { tool.name })
+                    put("input_schema", claudeSchema(tool.schema))
+                })
+            }
+        }
+        val stopReason = claude.stream(
+            system = buildSystemPrompt(settings.current, composio.status.value, memory.facts.value),
+            messages = buildClaudeMessages(conversation.messages.dropLast(1)),
+            tools = tools,
+            onText = { streamer.appendText(it) },
+            onToolUse = { use ->
+                val call = Part.ToolCall(
+                    id = use.id.ifBlank { "toolu_" + UUID.randomUUID().toString().replace("-", "") },
+                    name = use.name,
+                    argsJson = use.input.toString()
+                )
+                calls += call
+                modelMessage.parts += call
+                streamer.tick()
+            }
+        )
+        streamer.tick(force = true)
+        if (stopReason == "refusal") throw ApiException(400, "Claude declined to answer this one.")
+        if (calls.isEmpty() && !streamer.visibleText) {
+            throw ApiException(502, "Claude returned an empty reply. Try again.")
+        }
+        return calls
+    }
+
+    /** Claude needs a top-level object schema; Gemini-sanitized schemas are otherwise compatible. */
+    private fun claudeSchema(schema: JsonObject): JsonObject {
+        if (schema["type"] == JsonPrimitive("object")) return schema
+        return buildJsonObject {
+            put("type", "object")
+            schema["properties"]?.let { put("properties", it) }
+            schema["required"]?.let { put("required", it) }
+        }
+    }
+
+    /**
+     * Converts the stored chat (which may hold Gemini turns) into Anthropic
+     * messages: strict user/assistant alternation, tool_use ids that pair with
+     * tool_result blocks, and orphaned calls from stopped runs dropped.
+     */
+    private fun buildClaudeMessages(messages: List<ChatMessage>): JsonArray {
+        fun cleanId(id: String) = id.replace(Regex("[^a-zA-Z0-9_-]"), "_").ifBlank { "call" }
+        val callIds = messages.flatMap { m -> m.parts.filterIsInstance<Part.ToolCall>().map { it.id } }.toSet()
+        val resultIds = messages.flatMap { m -> m.parts.filterIsInstance<Part.ToolResponse>().map { it.callId } }.toSet()
+
+        val turns = mutableListOf<Pair<String, MutableList<JsonObject>>>()
+        for (message in messages) {
+            val blocks = mutableListOf<JsonObject>()
+            for (part in message.parts) {
+                when (part) {
+                    is Part.Text -> if (!part.thought && part.text.isNotBlank()) {
+                        blocks += buildJsonObject { put("type", "text"); put("text", part.text) }
+                    }
+                    is Part.Image -> if (message.role == Role.USER) blocks += claudeImage(part)
+                    is Part.File -> if (message.role == Role.USER) blocks += claudeFile(part)
+                    is Part.ToolCall -> if (part.id in resultIds) {
+                        blocks += buildJsonObject {
+                            put("type", "tool_use")
+                            put("id", cleanId(part.id))
+                            put("name", part.name)
+                            put("input", parseObject(part.argsJson))
+                        }
+                    }
+                    is Part.ToolResponse -> if (part.callId in callIds) {
+                        blocks += buildJsonObject {
+                            put("type", "tool_result")
+                            put("tool_use_id", cleanId(part.callId))
+                            put("content", part.responseJson.ifBlank { "{}" })
+                            if (!part.ok) put("is_error", true)
+                        }
+                    }
+                }
+            }
+            if (blocks.isEmpty()) continue
+            val role = if (message.role == Role.MODEL) "assistant" else "user"
+            val last = turns.lastOrNull()
+            if (last != null && last.first == role) last.second += blocks else turns += role to blocks
+        }
+        if (turns.firstOrNull()?.first == "assistant") {
+            turns.add(0, "user" to mutableListOf(buildJsonObject { put("type", "text"); put("text", "(continuing our conversation)") }))
+        }
+        return buildJsonArray {
+            for ((role, blocks) in turns) {
+                // tool_result blocks must lead a user turn.
+                val ordered = if (role == "user") blocks.sortedBy { if (it["type"] == JsonPrimitive("tool_result")) 0 else 1 } else blocks
+                add(buildJsonObject {
+                    put("role", role)
+                    put("content", JsonArray(ordered))
+                })
+            }
+        }
+    }
+
+    private fun claudeImage(part: Part.Image): JsonObject {
+        val file = File(part.path)
+        val mime = part.mime.ifBlank { "image/jpeg" }.lowercase()
+        val supported = mime in setOf("image/jpeg", "image/png", "image/gif", "image/webp")
+        if (!file.exists() || !supported || file.length() > MAX_CLAUDE_IMAGE_BYTES) {
+            return buildJsonObject { put("type", "text"); put("text", "[Image \"${part.name}\" could not be attached.]") }
+        }
+        return buildJsonObject {
+            put("type", "image")
+            put("source", buildJsonObject {
+                put("type", "base64")
+                put("media_type", mime)
+                put("data", Base64.encodeToString(file.readBytes(), Base64.NO_WRAP))
+            })
+        }
+    }
+
+    private fun claudeFile(part: Part.File): JsonObject {
+        val mime = part.mime.lowercase()
+        val file = File(part.path)
+        if (mime.startsWith("image/")) {
+            return claudeImage(Part.Image(path = part.path, name = part.name, mime = mime))
+        }
+        if (mime == "application/pdf" && file.exists() && file.length() <= MAX_INLINE_BYTES) {
+            return buildJsonObject {
+                put("type", "document")
+                put("source", buildJsonObject {
+                    put("type", "base64")
+                    put("media_type", "application/pdf")
+                    put("data", Base64.encodeToString(file.readBytes(), Base64.NO_WRAP))
+                })
+            }
+        }
+        // Text files and everything else: reuse the Gemini text rendering.
+        val text = filePart(part).text ?: "[Attached file \"${part.name}\" cannot be read inline.]"
+        return buildJsonObject { put("type", "text"); put("text", text) }
     }
 
     private suspend fun executeCalls(
@@ -486,7 +713,9 @@ class AgentRunner(
                                 name = part.name,
                                 args = parseObject(part.argsJson)
                             ),
-                            thoughtSignature = part.thoughtSignature
+                            // Calls made by Claude carry no Gemini signature;
+                            // this documented placeholder lets Gemini accept them.
+                            thoughtSignature = part.thoughtSignature ?: SKIP_SIGNATURE
                         )
                         is Part.ToolResponse -> Unit
                     }
@@ -586,11 +815,14 @@ class AgentRunner(
         const val MAX_TOOL_CHARS = 24_000
         const val MAX_TEXT_CHARS = 100_000
         const val MAX_INLINE_BYTES = 12L * 1024 * 1024
+        const val MAX_CLAUDE_IMAGE_BYTES = 5L * 1024 * 1024
+        const val SKIP_SIGNATURE = "skip_thought_signature_validator"
     }
 }
 
 sealed interface Brain {
     data object Gemini : Brain
+    data object Claude : Brain
     data class Local(val model: InstalledModel) : Brain
     data class Missing(val reason: String) : Brain
 }

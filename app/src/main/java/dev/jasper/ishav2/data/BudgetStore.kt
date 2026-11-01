@@ -58,6 +58,16 @@ data class MonthSummary(
     val leftInBudget: Double? get() = totalLimit?.let { it - expense }
 }
 
+/** Every transaction ever logged: money in, money out, and what's left. */
+data class AllTimeSummary(
+    val income: Double,
+    val expense: Double,
+    val since: LocalDate?
+) {
+    /** Total budget on hand: all income minus all spending. */
+    val balance: Double get() = income - expense
+}
+
 /** A budget crossing 80% or 100% because of a new expense. */
 data class BudgetAlert(val category: String, val spent: Double, val limit: Double, val over: Boolean)
 
@@ -182,6 +192,8 @@ class BudgetStore(private val file: File) {
 
     fun summary(month: YearMonth = YearMonth.now()): MonthSummary = summarize(_data.value, month)
 
+    fun allTime(): AllTimeSummary = allTimeOf(_data.value)
+
     /** Spending between two dates inclusive, for "today" / "this week" questions. */
     fun spentBetween(from: LocalDate, to: LocalDate): Pair<Double, List<Transaction>> {
         val list = _data.value.transactions.filter {
@@ -231,6 +243,12 @@ class BudgetStore(private val file: File) {
                 transactions = inMonth.sortedByDescending { it.at }
             )
         }
+
+        fun allTimeOf(data: BudgetData): AllTimeSummary = AllTimeSummary(
+            income = data.transactions.filter { it.type == TxType.INCOME }.sumOf { it.amount },
+            expense = data.transactions.filter { it.type == TxType.EXPENSE }.sumOf { it.amount },
+            since = data.transactions.minByOrNull { it.at }?.date
+        )
 
         fun crossedThresholds(before: BudgetData, after: BudgetData, tx: Transaction): List<BudgetAlert> {
             val month = YearMonth.from(tx.date)

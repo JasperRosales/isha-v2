@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.jasper.ishav2.data.AllTimeSummary
 import dev.jasper.ishav2.data.BudgetCategories
 import dev.jasper.ishav2.data.CategorySpend
 import dev.jasper.ishav2.data.MonthSummary
@@ -99,6 +100,7 @@ fun BudgetScreen(vm: BudgetViewModel, onBack: () -> Unit) {
     val summary by vm.summary.collectAsStateWithLifecycle()
     val data by vm.data.collectAsStateWithLifecycle()
     val month by vm.month.collectAsStateWithLifecycle()
+    val allTime by vm.allTime.collectAsStateWithLifecycle()
     val currency = data.currency
     val snackbar = remember { SnackbarHostState() }
 
@@ -172,6 +174,7 @@ fun BudgetScreen(vm: BudgetViewModel, onBack: () -> Unit) {
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item { AllTimeCard(allTime, currency) }
             item {
                 MonthSwitcher(
                     month = month,
@@ -353,6 +356,45 @@ private fun MonthSwitcher(month: YearMonth, canGoForward: Boolean, onPrevious: (
             tint = if (canGoForward) IshaInk else IshaMuted.copy(alpha = 0.4f),
             size = 36.dp
         )
+    }
+}
+
+/** Total budget on hand across every month: all income minus all spending. */
+@Composable
+private fun AllTimeCard(total: AllTimeSummary, currency: String) {
+    NeuSurface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        contentPadding = PaddingValues(18.dp)
+    ) {
+        Column {
+            Text(text = "Total budget · all time", color = IshaMuted, style = MaterialTheme.typography.labelMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (total.balance < 0) {
+                    Icon(
+                        imageVector = Icons.Rounded.ErrorOutline,
+                        contentDescription = "Negative balance",
+                        tint = IshaDanger,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    text = (if (total.balance < 0) "−" else "") + formatMoney(currency, kotlin.math.abs(total.balance)),
+                    color = IshaInk,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.5).sp
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "${formatMoney(currency, total.income)} income − ${formatMoney(currency, total.expense)} spent" +
+                    (total.since?.let { " · since ${it.format(DateTimeFormatter.ofPattern("MMM d, yyyy"))}" } ?: ""),
+                color = IshaMuted,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
     }
 }
 

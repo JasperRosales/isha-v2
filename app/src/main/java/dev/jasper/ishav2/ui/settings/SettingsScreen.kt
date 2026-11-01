@@ -103,6 +103,7 @@ fun SettingsScreen(
     val composio by vm.composio.collectAsStateWithLifecycle()
     val testingGemini by vm.testingGemini.collectAsStateWithLifecycle()
     val testingComposio by vm.testingComposio.collectAsStateWithLifecycle()
+    val testingClaude by vm.testingClaude.collectAsStateWithLifecycle()
     val cleared by vm.cleared.collectAsStateWithLifecycle()
     val memory by vm.memory.collectAsStateWithLifecycle()
     val installedModels by vm.installedModels.collectAsStateWithLifecycle()
@@ -113,6 +114,8 @@ fun SettingsScreen(
     var composioKey by rememberSaveable { mutableStateOf("") }
     var showGemini by rememberSaveable { mutableStateOf(false) }
     var showComposio by rememberSaveable { mutableStateOf(false) }
+    var claudeKey by rememberSaveable { mutableStateOf("") }
+    var showClaude by rememberSaveable { mutableStateOf(false) }
     var modelField by rememberSaveable { mutableStateOf(settings.model) }
     var confirmAuto by remember { mutableStateOf(false) }
     var clearAction by remember { mutableStateOf<ClearAction?>(null) }
@@ -265,6 +268,79 @@ fun SettingsScreen(
                         enabled = modelField.isNotBlank() && modelField != settings.model,
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+            }
+
+            item {
+                SettingsCard(
+                    title = "Backup brain · Claude",
+                    subtitle = "Optional. Gemini stays first; when its free limit runs out (or Gemini is down), isha keeps chatting with Claude. Stored encrypted on this phone."
+                ) {
+                    KeyField(
+                        value = claudeKey,
+                        onValueChange = { claudeKey = it },
+                        placeholder = if (settings.hasClaudeKey) "Saved · paste to replace" else "sk-ant-…",
+                        visible = showClaude,
+                        onToggle = { showClaude = !showClaude }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        NeuButton(
+                            text = "Save",
+                            onClick = {
+                                vm.saveClaudeKey(claudeKey)
+                                claudeKey = ""
+                            },
+                            accent = true,
+                            enabled = claudeKey.isNotBlank(),
+                            modifier = Modifier.weight(1f)
+                        )
+                        NeuButton(
+                            text = if (testingClaude) "Testing…" else "Test",
+                            onClick = vm::testClaude,
+                            enabled = settings.hasClaudeKey && !testingClaude,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (settings.hasClaudeKey) {
+                            NeuButton(
+                                text = "Remove key",
+                                onClick = {
+                                    vm.saveClaudeKey("")
+                                    claudeKey = ""
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        NeuButton(
+                            text = "Get a key",
+                            onClick = { openBrowser(context, "https://console.anthropic.com/settings/keys") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        for (suggestion in AppSettings.CLAUDE_MODEL_SUGGESTIONS) {
+                            val selected = settings.claudeModel == suggestion
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(if (selected) IshaAccent else IshaCreamDeep)
+                                    .clickable { vm.setClaudeModel(suggestion) }
+                                    .padding(horizontal = 11.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = suggestion,
+                                    color = if (selected) IshaOnAccent else IshaInk,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -425,7 +501,7 @@ fun SettingsScreen(
                         NeuButton(
                             text = "Send one now",
                             onClick = vm::sendBriefingNow,
-                            enabled = settings.briefingEnabled && settings.hasGeminiKey,
+                            enabled = settings.briefingEnabled && settings.hasCloudKey,
                             modifier = Modifier.weight(1f)
                         )
                     }

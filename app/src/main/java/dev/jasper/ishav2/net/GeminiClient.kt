@@ -43,7 +43,8 @@ class GeminiClient(private val settings: SettingsStore) {
                         val text = response.body?.string()
                         throw ApiException(
                             response.code,
-                            friendlyGeminiError(response.code, Http.errorMessage(text))
+                            friendlyGeminiError(response.code, Http.errorMessage(text)),
+                            retryAfterMs = if (response.code == 429) quotaBackoffMs(text) else null
                         )
                     }
                     val source = response.body?.source()
@@ -88,6 +89,27 @@ class GeminiClient(private val settings: SettingsStore) {
                 .filter { it.isNotBlank() }
                 .sorted()
         }
+    }
+
+    /**
+     * How long to skip Gemini after a 429. A spent daily free-tier quota only
+     * resets at midnight Pacific; per-minute limits say how long to wait.
+     */
+    private fun quotaBackoffMs(body: String?): Long {
+        val text = body.orEmpty()
+        val now = System.currentTimeMillis()
+        if (text.contains("PerDay", ignoreCase = true) || text.contains("per day", ignoreCase = true)) {
+            val pacific = java.time.ZoneId.of("America/Los_Angeles")
+            val reset = java.time.ZonedDateTime.now(pacific)
+                .toLocalDate().plusDays(1).atStartOfDay(pacific)
+                .toInstant().toEpochMilli()
+            return (reset - now).coerceAtLeast(60_000)
+        }
+        val seconds = Regex(""""retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"""").find(text)
+            ?.groupValues?.get(1)?.toDoubleOrNull()
+            ?: Regex("""retry in (\d+(?:\.\d+)?)\s*s""", RegexOption.IGNORE_CASE).find(text)
+                ?.groupValues?.get(1)?.toDoubleOrNull()
+        return ((seconds ?: 60.0) * 1000).toLong().coerceIn(10_000, 3_600_000)
     }
 
     private fun friendlyGeminiError(code: Int, detail: String): String = when (code) {

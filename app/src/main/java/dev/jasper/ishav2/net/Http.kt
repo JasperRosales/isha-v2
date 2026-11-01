@@ -16,7 +16,15 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class ApiException(val code: Int, override val message: String) : IOException(message)
+/**
+ * @param retryAfterMs how long the provider asked us to back off, when known
+ * (e.g. Gemini's free-tier quota). Used to route around a rate-limited brain.
+ */
+class ApiException(
+    val code: Int,
+    override val message: String,
+    val retryAfterMs: Long? = null
+) : IOException(message)
 
 object Http {
     val mediaTypeJson = "application/json; charset=utf-8".toMediaType()

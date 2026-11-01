@@ -62,6 +62,17 @@ object BudgetParser {
         """(?:[₱$€£¥]|\bphp\b|\bp)\s*(\d[\d,]*(?:\.\d+)?\s*k?\b)|(\d[\d,]*(?:\.\d+)?\s*k?)\s*(?:pesos?|php)\b"""
     )
 
+    /** Words that make "how much is left" about something other than money. */
+    private val NOT_MONEY = Regex(
+        """\b(time|hours?|minutes?|mins?|days?|weeks?|months?\s+(until|till|before)|until|till|before|battery|storage|data|gb|mb|pages?|items?|tasks?|homework|episodes?)\b"""
+    )
+    private val MONEY_TOPIC = Regex(
+        """[₱$€£¥]|\b(budget\w*|spen[dt]|spending|expenses?|money|afford|sav(e|ed|ing|ings)|income|allowance|baon|salary|sahod|sweldo|pesos?|php|cost|price|paid|pay|bills?|balance|cash|financ\w*|gastos|pera|wallet)\b"""
+    )
+
+    /** True when [input] is about money, so budget context is worth showing the model. */
+    fun isMoneyTalk(input: String): Boolean = MONEY_TOPIC.containsMatchIn(input.lowercase(Locale.ROOT))
+
     fun parse(input: String): BudgetCommand? {
         val raw = input.lowercase(Locale.ROOT)
         val text = normalize(input)
@@ -87,7 +98,9 @@ object BudgetParser {
             return BudgetCommand.SetBudget(BudgetCategories.TOTAL, amount)
         }
 
-        if (SUMMARY.containsMatchIn(text)) {
+        // "how much time is left before class" is not a budget question.
+        val aboutSomethingElse = !Regex("""spen[dt]|budget|money""").containsMatchIn(text) && NOT_MONEY.containsMatchIn(text)
+        if (SUMMARY.containsMatchIn(text) && !aboutSomethingElse) {
             val period = when {
                 "today" in text -> BudgetCommand.Period.TODAY
                 "week" in text -> BudgetCommand.Period.WEEK
@@ -253,42 +266,66 @@ class BudgetAssistant(
                 buildString {
                     append("**$month so far**\n\n")
                     append(monthLine(s.expense, s.totalLimit, s.income))
-                    if (s.categories.isNotEmpty()) {
+                    if (s.totalLimit == null) {
+                        append("\nNo monthly budget set yet. Set one in Budget, or say \"set budget to 5000\".")
+                    }
+                    val shown = s.categories.filter { it.spent > 0 || it.limit != null }
+                    if (shown.isNotEmpty()) {
                         append("\n\n")
-                        s.categories.filter { it.spent > 0 || it.limit != null }.take(8).forEach { cat ->
+                        shown.forEach { cat ->
                             append("- **${cat.category}**: ${formatMoney(c, cat.spent)}")
                             if (cat.limit != null) {
                                 append(" of ${formatMoney(c, cat.limit)}")
-                                if (cat.over) append(" ⚠️ over")
+                                append(if (cat.over) " ⚠️ over" else " (${formatMoney(c, cat.limit - cat.spent)} left)")
                             }
                             append("\n")
                         }
-                    } else {
-                        append("\n\nNo expenses logged yet. Try \"spent 120 on lunch\".")
+                    } else if (s.transactions.isEmpty()) {
+                        append("\n\nNothing logged this month yet. Try \"spent 120 on lunch\".")
                     }
+                    append("\n").append(allTimeLine())
                 }.trim()
             }
         }
     }
 
-    /** A compact snapshot for the offline model's prompt, so it can reason about money. */
+    /**
+     * The user's real budget setup for the offline model's prompt: the monthly
+     * budget (or that none is set), every category limit, this month's numbers
+     * and the all-time balance. Null when nothing has been set up at all.
+     */
     fun snapshotForPrompt(): String? {
+        val data = store.data.value
+        if (data.transactions.isEmpty() && data.budgets.isEmpty()) return null
         val s = store.summary()
-        if (s.transactions.isEmpty() && s.totalLimit == null && s.categories.isEmpty()) return null
+        val all = store.allTime()
         val c = store.currency
+        val month = s.month.format(DateTimeFormatter.ofPattern("MMMM"))
         return buildString {
-            append("Budget this month: spent ${formatMoney(c, s.expense)}, income ${formatMoney(c, s.income)}")
-            s.totalLimit?.let { append(", monthly budget ${formatMoney(c, it)} (${formatMoney(c, it - s.expense)} left)") }
-            append(".")
-            val top = s.categories.filter { it.spent > 0 }.take(5)
-            if (top.isNotEmpty()) {
-                append(" By category: ")
-                append(top.joinToString("; ") { cat ->
-                    "${cat.category} ${formatMoney(c, cat.spent)}" + (cat.limit?.let { " of ${formatMoney(c, it)}" } ?: "")
+            append("The user's budget (currency $c):\n")
+            append("- Monthly budget: ")
+            append(s.totalLimit?.let { "${formatMoney(c, it)} (${formatMoney(c, it - s.expense)} left this month)" } ?: "not set")
+            append("\n- $month so far: spent ${formatMoney(c, s.expense)}, income ${formatMoney(c, s.income)}\n")
+            val cats = s.categories.filter { it.spent > 0 || it.limit != null }
+            if (cats.isNotEmpty()) {
+                append("- Categories: ")
+                append(cats.joinToString("; ") { cat ->
+                    "${cat.category} ${formatMoney(c, cat.spent)}" +
+                        (cat.limit?.let { " of ${formatMoney(c, it)} limit" + if (cat.over) " (over)" else "" } ?: " (no limit)")
                 })
-                append(".")
+                append("\n")
             }
+            append("- All time: ${formatMoney(c, all.income)} income, ${formatMoney(c, all.expense)} spent, ")
+            append("${signed(all.balance)} on hand")
         }
+    }
+
+    private fun signed(amount: Double): String =
+        (if (amount < 0) "−" else "") + formatMoney(store.currency, kotlin.math.abs(amount))
+
+    private fun allTimeLine(): String {
+        val all = store.allTime()
+        return "All time: **${signed(all.balance)}** on hand (${formatMoney(store.currency, all.income)} in − ${formatMoney(store.currency, all.expense)} spent)."
     }
 
     fun postAlerts(alerts: List<BudgetAlert>) {

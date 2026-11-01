@@ -60,9 +60,34 @@ class BudgetTest {
     }
 
     @Test
+    fun detectsMoneyTalk() {
+        assertEquals(true, BudgetParser.isMoneyTalk("can I afford new shoes?"))
+        assertEquals(true, BudgetParser.isMoneyTalk("how's my budget"))
+        assertEquals(false, BudgetParser.isMoneyTalk("help me plan my study week"))
+        assertEquals(false, BudgetParser.isMoneyTalk("write a message to my friend"))
+    }
+
+    @Test
+    fun allTimeIncludesEveryMonth() {
+        val data = BudgetData(
+            transactions = listOf(
+                Transaction(type = TxType.INCOME, amount = 5000.0, category = "Allowance", at = 0L),
+                Transaction(type = TxType.EXPENSE, amount = 1200.0, category = "Food"),
+                Transaction(type = TxType.INCOME, amount = 300.0, category = "Gift")
+            )
+        )
+        val all = BudgetStore.allTimeOf(data)
+        assertEquals(5300.0, all.income, 0.001)
+        assertEquals(1200.0, all.expense, 0.001)
+        assertEquals(4100.0, all.balance, 0.001)
+    }
+
+    @Test
     fun leavesOrdinaryChatAlone() {
         assertNull(BudgetParser.parse("got 3 assignments due tomorrow"))
         assertNull(BudgetParser.parse("spent 2 hours on my thesis"))
+        assertNull(BudgetParser.parse("how much is left before my exam"))
+        assertNull(BudgetParser.parse("how much time is left"))
         assertNull(BudgetParser.parse("spend some time planning my week"))
         assertNull(BudgetParser.parse("buy 2 eggs on the way home"))
         assertNull(BudgetParser.parse("what is a budget?"))
