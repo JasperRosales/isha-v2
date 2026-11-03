@@ -4,6 +4,8 @@ import android.util.Base64
 import dev.jasper.ishav2.data.ApprovalMode
 import dev.jasper.ishav2.data.BrainMode
 import dev.jasper.ishav2.data.MemoryStore
+import dev.jasper.ishav2.data.DeadlineStore
+import dev.jasper.ishav2.data.MailDigestStore
 import dev.jasper.ishav2.local.InstalledModel
 import dev.jasper.ishav2.local.LocalLlm
 import dev.jasper.ishav2.local.LocalModelManager
@@ -59,7 +61,9 @@ class AgentRunner(
     private val models: LocalModelManager,
     private val localLlm: LocalLlm,
     private val network: NetworkMonitor,
-    private val budgetAssistant: BudgetAssistant
+    private val budgetAssistant: BudgetAssistant,
+    private val deadlines: DeadlineStore,
+    private val mailDigest: MailDigestStore
 ) {
     interface Listener {
         fun onUpdate()
@@ -126,11 +130,15 @@ class AgentRunner(
      * @param interactive false for background runs (daily briefing): nobody is
      * there to tap Approve, so calls that need approval are declined instead
      * of waiting.
+     * @param useTools false for plain text jobs over untrusted input (the mail
+     * digest): the model gets no tools at all, so text inside an email can
+     * never trigger an action.
      */
     suspend fun run(
         conversation: Conversation,
         listener: Listener,
-        interactive: Boolean = true
+        interactive: Boolean = true,
+        useTools: Boolean = true
     ) {
         // The user's turn was already appended by the caller so the UI reacts on
         // tap. Persist it before any network work so it survives a crash.
@@ -183,8 +191,8 @@ class AgentRunner(
                 }
 
                 val calls = try {
-                    if (provider == Brain.Claude) streamClaude(conversation, modelMessage, listener)
-                    else streamGemini(conversation, modelMessage, listener)
+                    if (provider == Brain.Claude) streamClaude(conversation, modelMessage, listener, useTools)
+                    else streamGemini(conversation, modelMessage, listener, useTools)
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
                     // Gemini's free limit is spent (or Gemini is down): hand this
@@ -274,12 +282,18 @@ class AgentRunner(
                 model = model,
                 memory = memory.facts.value,
                 countTokens = { localLlm.countTokens(model, it) },
-                // Only money questions get the budget; otherwise small models
-                // fixate on it and answer everything like a budget tracker.
+                // Only matching questions get each data block; otherwise small
+                // models fixate on it and answer everything like a tracker.
                 extraContext = conversation.messages.lastOrNull { it.role == Role.USER }
                     ?.plainText()
-                    ?.takeIf { BudgetParser.isMoneyTalk(it) }
-                    ?.let { budgetAssistant.snapshotForPrompt() }
+                    ?.let { text ->
+                        offlineContextFor(
+                            text = text,
+                            budget = { budgetAssistant.snapshotForPrompt() },
+                            deadlines = { DeadlineStore.snapshotForPrompt(deadlines.current.items) },
+                            mail = { MailDigestStore.snapshotForPrompt(mailDigest.current) }
+                        )
+                    }
             )
             var lastUpdate = 0L
             val reply = localLlm.generate(model, prompt) { token ->
@@ -360,8 +374,8 @@ class AgentRunner(
 
     private data class ToolSpec(val name: String, val description: String, val schema: JsonObject)
 
-    private fun toolSpecs(): List<ToolSpec> =
-        (nativeTools.declarations() + composio.declarations())
+    private fun toolSpecs(useTools: Boolean = true): List<ToolSpec> =
+        (if (useTools) nativeTools.declarations() + composio.declarations() else emptyList())
             .distinctBy { it.name }
             .map { tool ->
                 ToolSpec(
@@ -375,7 +389,8 @@ class AgentRunner(
     private suspend fun streamGemini(
         conversation: Conversation,
         modelMessage: ChatMessage,
-        listener: Listener
+        listener: Listener,
+        useTools: Boolean
     ): List<Part.ToolCall> {
         val calls = mutableListOf<Part.ToolCall>()
         var finishReason: String? = null
@@ -383,7 +398,7 @@ class AgentRunner(
         fun tick(force: Boolean = false) = streamer.tick(force)
         fun appendText(value: String, thought: Boolean) = streamer.appendText(value, thought)
 
-        val tools = toolSpecs().map { GeminiFunctionDeclaration(it.name, it.description, it.schema) }
+        val tools = toolSpecs(useTools).map { GeminiFunctionDeclaration(it.name, it.description, it.schema) }
 
         val history = conversation.messages.dropLast(1)
         val request = GeminiRequest(
@@ -448,12 +463,13 @@ class AgentRunner(
     private suspend fun streamClaude(
         conversation: Conversation,
         modelMessage: ChatMessage,
-        listener: Listener
+        listener: Listener,
+        useTools: Boolean
     ): List<Part.ToolCall> {
         val calls = mutableListOf<Part.ToolCall>()
         val streamer = Streamer(modelMessage, listener)
         val tools = buildJsonArray {
-            for (tool in toolSpecs()) {
+            for (tool in toolSpecs(useTools)) {
                 add(buildJsonObject {
                     put("name", tool.name)
                     put("description", tool.description.ifBlank { tool.name })

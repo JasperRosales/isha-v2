@@ -36,6 +36,8 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -101,6 +103,7 @@ fun BudgetScreen(vm: BudgetViewModel, onBack: () -> Unit) {
     val data by vm.data.collectAsStateWithLifecycle()
     val month by vm.month.collectAsStateWithLifecycle()
     val allTime by vm.allTime.collectAsStateWithLifecycle()
+    val hideTransactions by vm.hideTransactions.collectAsStateWithLifecycle()
     val currency = data.currency
     val snackbar = remember { SnackbarHostState() }
 
@@ -237,7 +240,13 @@ fun BudgetScreen(vm: BudgetViewModel, onBack: () -> Unit) {
                 }
             }
 
-            item { SectionLabel("Transactions · long-press to delete") }
+            item(key = "tx-header") {
+                TransactionsHeader(
+                    count = summary.transactions.size,
+                    hidden = hideTransactions,
+                    onToggle = { vm.setHideTransactions(!hideTransactions) }
+                )
+            }
             if (summary.transactions.isEmpty()) {
                 item {
                     Text(
@@ -249,6 +258,7 @@ fun BudgetScreen(vm: BudgetViewModel, onBack: () -> Unit) {
                     )
                 }
             }
+            if (hideTransactions) return@LazyColumn
             val byDay = summary.transactions.groupBy { it.date }
             byDay.forEach { (day, list) ->
                 item(key = "day-$day") {
@@ -335,6 +345,39 @@ fun BudgetScreen(vm: BudgetViewModel, onBack: () -> Unit) {
                 pickingCurrency = false
             }
         )
+    }
+}
+
+/** "Transactions" label with a Show/Hide toggle, so the day-by-day list can be collapsed. */
+@Composable
+private fun TransactionsHeader(count: Int, hidden: Boolean, onToggle: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        SectionLabel(
+            text = if (hidden) "Transactions" else "Transactions · long-press to delete",
+            modifier = Modifier.weight(1f)
+        )
+        if (count > 0) {
+            Row(
+                Modifier
+                    .clip(CircleShape)
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (hidden) "Show $count" else "Hide",
+                    color = IshaAccent,
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Spacer(Modifier.width(2.dp))
+                Icon(
+                    imageVector = if (hidden) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
+                    contentDescription = null,
+                    tint = IshaAccent,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
     }
 }
 

@@ -147,7 +147,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun sendBriefingNow() {
         BriefingWorker.runNow(container.appContext)
-        _events.tryEmit("Preparing your briefing. It will arrive as a notification.")
+        _events.tryEmit("Preparing your briefing. It will land in your inbox.")
     }
 
     fun forgetFact(id: String) {

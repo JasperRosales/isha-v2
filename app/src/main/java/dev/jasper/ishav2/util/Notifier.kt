@@ -183,21 +183,21 @@ class Notifier(private val context: Context) {
         notify(id, notification)
     }
 
-    fun postBriefing(conversationId: String, title: String, summary: String) {
+    /** The daily briefing, already saved to the inbox; tapping opens the inbox. */
+    fun postBriefing(item: InboxItem) {
         if (!canPost()) return
         ensureChannels()
         val notification = NotificationCompat.Builder(context, CHANNEL_BRIEFING)
             .setSmallIcon(R.drawable.ic_notification)
             .setLargeIcon(avatar)
             .setColor(ACCENT)
-            .setContentTitle(title)
-            .setContentText(summary)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(summary.take(CLIP)))
-            .setContentIntent(chatIntent(conversationId))
-            .addAction(replyAction(conversationId))
+            .setContentTitle(item.title)
+            .setContentText(item.message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(item.message.take(CLIP)))
+            .setContentIntent(inboxIntent(BRIEFING_NOTIF_ID))
             .setAutoCancel(true)
             .build()
-        notify(replyId(conversationId), notification)
+        notify(BRIEFING_NOTIF_ID, notification)
     }
 
     fun postBudgetAlert(title: String, message: String) {
@@ -367,6 +367,7 @@ class Notifier(private val context: Context) {
         const val CHANNEL_DOWNLOADS = "isha_downloads"
         const val CHANNEL_BUDGET = "isha_budget"
         private const val BUDGET_NOTIF_ID = 4200
+        private const val BRIEFING_NOTIF_ID = 4300
         const val WORK_NOTIF_ID = 4101
         const val DOWNLOAD_NOTIF_ID = 4103
         private const val DOWNLOAD_RESULT_ID = 4104

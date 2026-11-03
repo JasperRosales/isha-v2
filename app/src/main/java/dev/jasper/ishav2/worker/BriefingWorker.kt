@@ -11,6 +11,8 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import dev.jasper.ishav2.IshaApp
 import dev.jasper.ishav2.data.AppSettings
+import dev.jasper.ishav2.data.DeadlineStore
+import dev.jasper.ishav2.data.InboxItem
 import dev.jasper.ishav2.data.MessageStatus
 import dev.jasper.ishav2.data.Role
 import dev.jasper.ishav2.data.plainText
@@ -22,8 +24,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * The daily briefing: once a day, isha checks the user's calendar, inbox and
- * tasks through Composio and pushes a short summary. Tapping it opens the full
- * briefing as a normal chat, and the notification's Reply continues it.
+ * tasks through Composio and drops a short summary into the inbox (no new
+ * chat). The notification opens the inbox.
  */
 class BriefingWorker(
     appContext: Context,
@@ -38,15 +40,25 @@ class BriefingWorker(
         try {
             if (settings.hasComposioKey) runCatching { container.composio.ensure(force = false) }
             val today = LocalDate.now().format(DateTimeFormatter.ofPattern("EEE, MMM d"))
+            val saved = DeadlineStore.snapshotForPrompt(container.deadlines.current.items)
             val conversation = container.chat.runInBackground(
                 title = "Briefing · $today",
-                prompt = PROMPT
+                prompt = "$PROMPT\n\nFor tasks and assignments, start from these (already on the phone):\n$saved"
             )
             val reply = conversation.messages.lastOrNull { it.role == Role.MODEL }
             val text = reply?.takeIf { it.status == MessageStatus.DONE }?.plainText()?.trim().orEmpty()
-            if (text.isNotBlank()) {
-                container.notifier.postBriefing(conversation.id, "Your briefing · $today", text)
+            val item = if (text.isNotBlank()) {
+                InboxItem(title = "Briefing · $today", message = text, source = SOURCE)
+            } else {
+                InboxItem(
+                    title = "Briefing · $today",
+                    message = "isha couldn't put today's briefing together. Check your connection and API keys in Settings.",
+                    level = "warning",
+                    source = SOURCE
+                )
             }
+            container.notifications.add(item)
+            container.notifier.postBriefing(item)
         } finally {
             // Always line up tomorrow's run, even if today's failed. A manual
             // "send one now" leaves the daily schedule alone.
@@ -60,6 +72,7 @@ class BriefingWorker(
     companion object {
         private const val WORK_NAME = "isha_daily_briefing"
         private const val KEY_MANUAL = "manual"
+        const val SOURCE = "briefing"
 
         private val PROMPT = """
             Good morning! Give me my daily briefing for today. Check, in one batch where you can:

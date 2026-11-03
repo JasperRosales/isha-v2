@@ -1,5 +1,6 @@
 package dev.jasper.ishav2.ui.inbox
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,7 +36,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jasper.ishav2.data.InboxItem
 import dev.jasper.ishav2.ui.components.IshaLogo
+import dev.jasper.ishav2.ui.components.MarkdownText
 import dev.jasper.ishav2.ui.components.NeuIconButton
 import dev.jasper.ishav2.ui.theme.IshaAccent
 import dev.jasper.ishav2.ui.theme.IshaCream
@@ -58,6 +63,7 @@ import dev.jasper.ishav2.ui.theme.IshaSuccess
 import dev.jasper.ishav2.ui.theme.IshaSurfaceHi
 import dev.jasper.ishav2.ui.theme.IshaWarn
 import dev.jasper.ishav2.util.relativeTime
+import dev.jasper.ishav2.worker.BriefingWorker
 
 @Composable
 fun InboxScreen(vm: InboxViewModel, onBack: () -> Unit) {
@@ -132,12 +138,18 @@ fun InboxScreen(vm: InboxViewModel, onBack: () -> Unit) {
 @Composable
 private fun InboxRow(item: InboxItem, onRead: () -> Unit, onDelete: () -> Unit) {
     val color = levelColor(item.level)
+    // Long items (like the daily briefing) start clipped; tap to read them in full.
+    var expanded by rememberSaveable(item.id) { mutableStateOf(false) }
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .background(if (item.read) IshaSurfaceHi.copy(alpha = 0.55f) else IshaSurfaceHi)
-            .clickable(onClick = onRead)
+            .clickable {
+                onRead()
+                expanded = !expanded
+            }
+            .animateContentSize()
             .padding(13.dp),
         verticalAlignment = Alignment.Top
     ) {
@@ -178,13 +190,18 @@ private fun InboxRow(item: InboxItem, onRead: () -> Unit, onDelete: () -> Unit) 
                 }
             }
             Spacer(Modifier.height(2.dp))
-            Text(
-                text = item.message,
-                color = if (item.read) IshaMuted else IshaInk,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 5,
-                overflow = TextOverflow.Ellipsis
-            )
+            val textColor = if (item.read) IshaMuted else IshaInk
+            if (expanded && item.source == BriefingWorker.SOURCE) {
+                MarkdownText(text = item.message, color = textColor)
+            } else {
+                Text(
+                    text = if (item.source == BriefingWorker.SOURCE) stripMarkdown(item.message) else item.message,
+                    color = textColor,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = if (expanded) Int.MAX_VALUE else 5,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Spacer(Modifier.height(4.dp))
             Text(
                 text = relativeTime(item.createdAt),
@@ -245,6 +262,11 @@ private fun EmptyInbox(modifier: Modifier = Modifier) {
         )
     }
 }
+
+/** Collapsed previews show plain text, not raw `**bold**` / `# heading` markers. */
+private fun stripMarkdown(text: String): String = text
+    .replace(Regex("""(?m)^\s{0,3}#{1,6}\s*"""), "")
+    .replace(Regex("""\*\*|__|`"""), "")
 
 @Composable
 @ReadOnlyComposable

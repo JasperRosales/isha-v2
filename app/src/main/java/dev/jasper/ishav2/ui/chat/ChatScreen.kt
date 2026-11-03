@@ -113,7 +113,9 @@ fun ChatScreen(
     onOpenApps: () -> Unit,
     onOpenInbox: () -> Unit,
     onOpenModels: () -> Unit,
-    onOpenBudget: () -> Unit
+    onOpenBudget: () -> Unit,
+    onOpenDeadlines: () -> Unit,
+    onOpenMail: () -> Unit
 ) {
     // Plain collectAsState (not lifecycle-gated): the chat must keep painting
     // tokens while it is on screen, and this screen only exists while visible.
@@ -199,6 +201,8 @@ fun ChatScreen(
                 onOpenInbox = onOpenInbox,
                 onOpenModels = onOpenModels,
                 onOpenBudget = onOpenBudget,
+                onOpenDeadlines = onOpenDeadlines,
+                onOpenMail = onOpenMail,
                 brain = brain,
                 onOpenSettings = onOpenSettings,
                 onClose = { scope.launch { drawer.close() } }

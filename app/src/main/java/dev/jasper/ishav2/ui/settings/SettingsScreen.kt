@@ -464,7 +464,7 @@ fun SettingsScreen(
             item {
                 SettingsCard(
                     title = "Daily briefing",
-                    subtitle = "Each morning isha checks your calendar, inbox and tasks and sends you a short push summary."
+                    subtitle = "Each morning isha checks your calendar, email and tasks and drops a short summary in your inbox."
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -568,7 +568,7 @@ fun SettingsScreen(
                         Column(Modifier.weight(1f)) {
                             Text("Gmail new mail", color = IshaInk, style = MaterialTheme.typography.labelLarge)
                             Text(
-                                text = if (settings.composioMode == ComposioKeyMode.PROJECT) "Polls for unread messages" else "Requires ak_ project key",
+                                text = "Pushes new unread mail every 30 minutes",
                                 color = IshaMuted,
                                 style = MaterialTheme.typography.labelSmall
                             )
@@ -576,7 +576,7 @@ fun SettingsScreen(
                         Switch(
                             checked = settings.gmailPollingEnabled,
                             onCheckedChange = vm::setGmailPolling,
-                            enabled = settings.composioMode == ComposioKeyMode.PROJECT
+                            enabled = settings.hasComposioKey
                         )
                     }
                     Spacer(Modifier.height(10.dp))
@@ -588,7 +588,7 @@ fun SettingsScreen(
                         Column(Modifier.weight(1f)) {
                             Text("Google Classroom", color = IshaInk, style = MaterialTheme.typography.labelLarge)
                             Text(
-                                text = if (settings.composioMode == ComposioKeyMode.PROJECT) "Polls for new announcements" else "Requires ak_ project key",
+                                text = "Pushes new announcements every 30 minutes",
                                 color = IshaMuted,
                                 style = MaterialTheme.typography.labelSmall
                             )
@@ -596,7 +596,7 @@ fun SettingsScreen(
                         Switch(
                             checked = settings.classroomPollingEnabled,
                             onCheckedChange = vm::setClassroomPolling,
-                            enabled = settings.composioMode == ComposioKeyMode.PROJECT
+                            enabled = settings.hasComposioKey
                         )
                     }
                 }

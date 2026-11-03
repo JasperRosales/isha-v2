@@ -23,6 +23,11 @@ The app is intentionally small in surface area and large in capability: a chat d
 - **Claude as a backup brain.** Gemini always answers first. Add an optional Claude API key in Settings and, when Gemini's free quota runs out (or Gemini errors), the same reply continues on Claude with full tool access. isha then skips Gemini until its quota resets (midnight Pacific for the daily limit). Claude usage is billed to your Anthropic API credits.
 - **Push notifications.** Replies that finish while you are away arrive as chat-style notifications with an inline **Reply** box; reminders fire at the exact time (and survive reboots); an optional **daily briefing** summarises calendar, email and tasks each morning.
 - **Budget tracking (works offline).** Log spending and income by chat ("spent 150 on lunch", "got 3k allowance", "set food budget to 3000", "how much is left?") or from the **Budget** screen. Monthly and per-category limits, 80%/over-budget push alerts, month history, and an all-time balance (all income minus all spending). Budget commands work with no network and even with no model downloaded.
+- **Due: school deadlines (works offline).** Google Classroom assignments sync every 2 hours (and on demand) into a **Due** screen grouped as Overdue / Today / Tomorrow / This week / Later, with turned-in work marked done automatically. Add your own deadlines too. Reminders are scheduled on the phone (a day before and 2 hours before; date-only items at 7 PM the day before and 8 AM on the day), so they fire without internet. One tap sends a deadline to Google Tasks. isha can list, add and complete deadlines in chat, and the offline model reads them for "what's due?" questions.
+- **Mail digest (works offline).** Recent inbox mail (last 2 days, minus Promotions/Social) syncs every 2 hours and is saved on the phone with an isha-written summary that leads with what needs action. The summary is written by a model with no tools, so email text can't trigger actions. Readable offline; the offline model uses it for email questions.
+- **Task form.** The composer's **+ → Task** opens a form (title, notes, due date, list) that fills the message box with a ready Google Tasks request.
+- **Daily briefing in the inbox.** The briefing lands in the inbox (tap to expand, Markdown rendered) instead of creating a new chat, and includes your saved deadlines.
+- **New mail / Classroom alerts.** Optional pushes for new unread Gmail and new Classroom announcements every 30 minutes, with either key type.
 - **Memory.** isha saves lasting facts you tell it (`remember_fact` / `forget_fact`); you can review and delete them in Settings.
 - **Fluid chat.** The list follows the streaming reply only while you are at the bottom, pauses when you scroll up, and offers a "Latest" button to jump back.
 - **Streaming chat with Gemini** using `streamGenerateContent?alt=sse`, function calling, and tool-result continuation.
@@ -59,7 +64,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 If your SDK or JDK live elsewhere, point `sdk.dir` and `JAVA_HOME` at them. The debug APK is self-signed and suitable for sideloading; it is not a Play Store build.
 
-Run the unit tests (schema normalization) with:
+Run the unit tests with:
 
 ```bash
 JAVA_HOME="$HOME/.local/opt/jdk-17" ./gradlew testDebugUnitTest

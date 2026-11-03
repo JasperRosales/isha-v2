@@ -43,7 +43,8 @@ data class AppSettings(
     val autoApproveReads: Boolean = true,
     val briefingEnabled: Boolean = false,
     val briefingHour: Int = 7,
-    val briefingMinute: Int = 30
+    val briefingMinute: Int = 30,
+    val hideTransactions: Boolean = false
 ) {
     val hasGeminiKey: Boolean get() = geminiKey.isNotBlank()
     val hasClaudeKey: Boolean get() = claudeKey.isNotBlank()
@@ -144,6 +145,11 @@ class SettingsStore(context: Context) {
     fun setOnboarded(value: Boolean) {
         prefs.edit().putBoolean(KEY_ONBOARDED, value).apply()
         _settings.value = current.copy(onboarded = value)
+    }
+
+    fun setHideTransactions(hidden: Boolean) {
+        prefs.edit().putBoolean(KEY_HIDE_TX, hidden).apply()
+        _settings.value = current.copy(hideTransactions = hidden)
     }
 
     fun setDarkTheme(enabled: Boolean) {
@@ -263,7 +269,8 @@ class SettingsStore(context: Context) {
             autoApproveReads = prefs.getBoolean(KEY_AUTO_READS, true),
             briefingEnabled = prefs.getBoolean(KEY_BRIEFING, false),
             briefingHour = prefs.getInt(KEY_BRIEFING_HOUR, 7),
-            briefingMinute = prefs.getInt(KEY_BRIEFING_MINUTE, 30)
+            briefingMinute = prefs.getInt(KEY_BRIEFING_MINUTE, 30),
+            hideTransactions = prefs.getBoolean(KEY_HIDE_TX, false)
         )
     }
 
@@ -295,5 +302,6 @@ class SettingsStore(context: Context) {
         const val KEY_BRIEFING = "briefing_enabled"
         const val KEY_BRIEFING_HOUR = "briefing_hour"
         const val KEY_BRIEFING_MINUTE = "briefing_minute"
+        const val KEY_HIDE_TX = "budget_hide_transactions"
     }
 }

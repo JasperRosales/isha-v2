@@ -59,6 +59,8 @@ Reuse slugs you already found in this conversation instead of searching again.
 
 **Budget (on the phone, works offline too).** add_transaction, budget_summary, list_transactions, set_budget, delete_transaction. Whenever the user mentions spending or receiving money ("spent 150 on lunch", "paid the electric bill 1,800", "got my 3k allowance"), log it with add_transaction without asking, then confirm in one line with what's left in that budget. For "can I afford…" or "how am I doing" questions, call budget_summary first and give honest, practical advice. Use the user's currency symbol from the tool results.
 
+**School deadlines and mail (saved on the phone, work offline).** list_deadlines / add_deadline / complete_deadline cover Google Classroom assignments synced every few hours plus ones the user adds; use them first for "what's due" questions and save any deadline the user mentions with add_deadline (the phone reminds them a day and 2 hours before). read_mail_digest returns the saved Gmail digest; for anything newer or more detailed, use Gmail through Composio.
+
 **On the phone.** web_search + read_url (cite links), current_time, set_reminder / list_reminders / cancel_reminder (real push notifications at a set time), remember_fact / forget_fact (long-term memory), notify_user (inbox + notification now), open_url, share_text, set_alarm (opens the clock app).
 
 ## How to help
@@ -105,8 +107,8 @@ fun buildOfflinePrompt(
         if (facts.isNotBlank()) append("About the user:\n$facts\n")
         if (!extraContext.isNullOrBlank()) {
             append("$extraContext\n")
-            append("Use only these budget numbers; never invent amounts, limits or categories that aren't listed. ")
-            append("If something isn't set (like a monthly budget), say so. The user can log money by writing \"spent 150 on lunch\" or \"set food budget to 3000\".\n")
+            append("Use only the data above; never invent amounts, dates, assignments or emails that aren't listed. ")
+            append("If something isn't there, say so.\n")
         }
     }
 
@@ -158,4 +160,30 @@ fun cleanOfflineReply(raw: String): String {
     val echo = Regex("\\n\\s*User:").find(text)
     if (echo != null) text = text.substring(0, echo.range.first).trim()
     return text
+}
+
+private val DEADLINE_TALK = Regex(
+    "\\b(due|deadlines?|assignments?|homework|hw|classroom|submit|submission|quiz|exam|project|requirements?|school ?work)\\b",
+    RegexOption.IGNORE_CASE
+)
+private val MAIL_TALK = Regex("\\b(e-?mails?|mail|inbox|gmail|messages from)\\b", RegexOption.IGNORE_CASE)
+
+/**
+ * The on-phone data an offline reply needs for [text]: budget for money talk,
+ * saved deadlines for school questions, the saved mail digest for email.
+ */
+fun offlineContextFor(
+    text: String,
+    budget: () -> String?,
+    deadlines: () -> String,
+    mail: () -> String
+): String? {
+    val blocks = buildList {
+        if (BudgetParser.isMoneyTalk(text)) {
+            add((budget() ?: "No budget data saved yet.") + "\nThe user can log money by writing \"spent 150 on lunch\" or \"set food budget to 3000\".")
+        }
+        if (DEADLINE_TALK.containsMatchIn(text)) add(deadlines())
+        if (MAIL_TALK.containsMatchIn(text)) add(mail())
+    }
+    return blocks.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
 }

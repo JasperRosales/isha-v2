@@ -173,29 +173,18 @@ class ChatSession(
     }
 
     /**
-     * Runs a prompt in a brand-new conversation without touching the one on
-     * screen: used by the daily briefing. Approval-gated actions are declined
-     * because nobody is there to approve them.
+     * Runs a prompt in a throwaway conversation that is never saved to the
+     * chat list: used by the daily briefing, whose result lands in the inbox.
+     * Approval-gated actions are declined because nobody is there to approve them.
      */
-    suspend fun runInBackground(title: String, prompt: String): Conversation {
+    suspend fun runInBackground(title: String, prompt: String, useTools: Boolean = true): Conversation {
         val conversation = Conversation(title = title)
         conversation.messages += userMessage(prompt, emptyList())
         val listener = object : AgentRunner.Listener {
             override fun onUpdate() = Unit
-
-            override suspend fun onPersist() {
-                store.save(conversation)
-                _conversations.value = store.list()
-            }
+            override suspend fun onPersist() = Unit
         }
-        try {
-            runner.run(conversation, listener, interactive = false)
-        } finally {
-            withContext(NonCancellable) {
-                runCatching { store.save(conversation) }
-                _conversations.value = store.list()
-            }
-        }
+        runner.run(conversation, listener, interactive = false, useTools = useTools)
         return conversation
     }
 

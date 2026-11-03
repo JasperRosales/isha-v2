@@ -68,6 +68,12 @@
             </intent-filter>
         </receiver>
 
+        <!-- Deadline heads-ups. Re-armed from the saved list whenever the app
+             process starts, including after a reboot (ReminderReceiver wakes it). -->
+        <receiver
+            android:name=".notify.DeadlineReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

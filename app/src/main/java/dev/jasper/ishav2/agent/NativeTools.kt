@@ -6,6 +6,10 @@ import android.net.Uri
 import android.provider.AlarmClock
 import dev.jasper.ishav2.data.BudgetCategories
 import dev.jasper.ishav2.data.BudgetStore
+import dev.jasper.ishav2.data.Deadline
+import dev.jasper.ishav2.data.DeadlineGroup
+import dev.jasper.ishav2.data.DeadlineStore
+import dev.jasper.ishav2.data.MailDigestStore
 import dev.jasper.ishav2.data.MemoryStore
 import dev.jasper.ishav2.data.Transaction
 import dev.jasper.ishav2.data.TxType
@@ -47,7 +51,9 @@ class NativeTools(
     private val memory: MemoryStore,
     private val reminders: ReminderStore,
     private val budget: BudgetStore,
-    private val budgetAssistant: BudgetAssistant
+    private val budgetAssistant: BudgetAssistant,
+    private val deadlines: DeadlineStore,
+    private val mailDigest: MailDigestStore
 ) {
     fun declarations(): List<RemoteTool> = listOf(
         RemoteTool(
@@ -217,6 +223,45 @@ class NativeTools(
             )
         ),
         RemoteTool(
+            name = "list_deadlines",
+            description = "List the user's saved deadlines (Google Classroom assignments synced to the phone plus ones they added), grouped as Overdue/Today/Tomorrow/This week/Later. Works offline. Prefer this over querying Classroom for \"what's due\" questions.",
+            inputSchema = objectSchema(
+                properties = buildJsonObject {
+                    put("include_done", intProperty("1 to include finished items too. Default 0."))
+                },
+                required = emptyList()
+            )
+        ),
+        RemoteTool(
+            name = "add_deadline",
+            description = "Save a deadline on the phone (shows on the Due screen; the phone reminds the user the day before and 2 hours before).",
+            inputSchema = objectSchema(
+                properties = buildJsonObject {
+                    put("title", stringProperty("What is due, e.g. \"Lab report 3\"."))
+                    put("due", stringProperty("ISO-8601 local date-time like 2026-11-05T23:59, or just a date 2026-11-05."))
+                    put("course", stringProperty("Optional subject or class."))
+                    put("notes", stringProperty("Optional notes."))
+                },
+                required = listOf("title", "due")
+            )
+        ),
+        RemoteTool(
+            name = "complete_deadline",
+            description = "Mark a saved deadline as done (or not done) by its id from list_deadlines.",
+            inputSchema = objectSchema(
+                properties = buildJsonObject {
+                    put("id", stringProperty("Deadline id."))
+                    put("done", intProperty("1 = done (default), 0 = not done."))
+                },
+                required = listOf("id")
+            )
+        ),
+        RemoteTool(
+            name = "read_mail_digest",
+            description = "Read the Gmail digest saved on the phone (recent inbox emails plus a summary from the last sync). Works offline; may be a few hours old.",
+            inputSchema = objectSchema(buildJsonObject { }, emptyList())
+        ),
+        RemoteTool(
             name = "set_alarm",
             description = "Open the clock app with an alarm pre-filled. The user confirms it in the clock app.",
             inputSchema = objectSchema(
@@ -248,6 +293,10 @@ class NativeTools(
         "list_transactions" -> listTransactions(args)
         "set_budget" -> setBudget(args)
         "delete_transaction" -> deleteTransaction(args.text("id"))
+        "list_deadlines" -> listDeadlines(args.int("include_done") == 1)
+        "add_deadline" -> addDeadline(args)
+        "complete_deadline" -> completeDeadline(args.text("id"), args.text("done") != "0")
+        "read_mail_digest" -> readMailDigest()
         else -> throw IllegalArgumentException("Unknown native tool: $name")
     }
 
@@ -441,6 +490,63 @@ class NativeTools(
             if (removed == null) put("error", "No transaction with id $id.")
         }.toString()
     }
+
+    private fun listDeadlines(includeDone: Boolean): String {
+        val data = deadlines.current
+        return buildJsonObject {
+            put("deadlines", buildJsonArray {
+                DeadlineStore.grouped(data.items)
+                    .filter { includeDone || it.first != DeadlineGroup.DONE }
+                    .forEach { (group, list) ->
+                        list.forEach { item ->
+                            add(buildJsonObject {
+                                put("id", item.id)
+                                put("group", group.label)
+                                put("title", item.title)
+                                put("course", item.course)
+                                put("due", DeadlineStore.describeDue(item))
+                                put("source", item.source)
+                                put("done", item.isDone)
+                                if (item.turnedIn) put("turned_in", true)
+                            })
+                        }
+                    }
+            })
+            put("last_synced", if (data.lastSyncedAt > 0) describeTime(data.lastSyncedAt) else "never")
+        }.toString()
+    }
+
+    private suspend fun addDeadline(args: JsonObject): String {
+        val title = args.text("title").trim()
+        if (title.isBlank()) throw IllegalArgumentException("A deadline needs a title.")
+        val raw = args.text("due").trim()
+        val dateOnly = runCatching { LocalDate.parse(raw) }.getOrNull()
+        val dueAt = dateOnly?.let { DeadlineStore.endOfDay(it) } ?: parseWhen(raw)
+        val item = Deadline(
+            title = title,
+            course = args.text("course").trim(),
+            notes = args.text("notes").trim(),
+            dueAt = dueAt,
+            hasTime = dateOnly == null
+        )
+        deadlines.add(item)
+        return buildJsonObject {
+            put("ok", true)
+            put("id", item.id)
+            put("due", DeadlineStore.describeDue(item))
+        }.toString()
+    }
+
+    private suspend fun completeDeadline(id: String, done: Boolean): String {
+        val found = deadlines.current.items.any { it.id == id }
+        if (found) deadlines.setDone(id, done)
+        return buildJsonObject {
+            put("ok", found)
+            if (!found) put("error", "No deadline with id $id.")
+        }.toString()
+    }
+
+    private fun readMailDigest(): String = MailDigestStore.snapshotForPrompt(mailDigest.current)
 
     private fun parseMonth(value: String): YearMonth =
         runCatching { YearMonth.parse(value.trim().take(7)) }.getOrDefault(YearMonth.now())

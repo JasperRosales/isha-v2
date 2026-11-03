@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -90,6 +91,7 @@ fun Composer(
     val attachments = remember { mutableStateListOf<Part>() }
     var importing by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    var taskFormOpen by rememberSaveable { mutableStateOf(false) }
     var pendingCamera by remember { mutableStateOf<File?>(null) }
 
     fun importUris(uris: List<Uri>) {
@@ -219,6 +221,16 @@ fun Composer(
                         }
                     )
                     DropdownMenuItem(
+                        text = { Text("Task") },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.TaskAlt, contentDescription = null, tint = IshaAccent)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            taskFormOpen = true
+                        }
+                    )
+                    DropdownMenuItem(
                         text = { Text("File") },
                         leadingIcon = {
                             Icon(
@@ -302,6 +314,18 @@ fun Composer(
                 }
             }
         }
+    }
+
+    if (taskFormOpen) {
+        // The form fills the message box with a ready Google Tasks prompt, so
+        // it can be reviewed or tweaked before sending.
+        TaskFormDialog(
+            onDismiss = { taskFormOpen = false },
+            onSubmit = { prompt ->
+                text = if (text.isBlank()) prompt else text.trimEnd() + "\n\n" + prompt
+                taskFormOpen = false
+            }
+        )
     }
 }
 

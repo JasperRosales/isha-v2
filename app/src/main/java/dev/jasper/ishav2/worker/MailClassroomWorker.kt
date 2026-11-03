@@ -4,195 +4,83 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import dev.jasper.ishav2.IshaApp
+import dev.jasper.ishav2.agent.AppContainer
 import dev.jasper.ishav2.data.InboxItem
+import dev.jasper.ishav2.net.GmailSync
 import dev.jasper.ishav2.util.Notifier
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 
+/**
+ * Every 30 minutes (Settings → Gmail new mail / Google Classroom): pushes new
+ * unread mail and new Classroom announcements. Uses the same Composio calls as
+ * the Due screen and mail digest, so it works with either key type.
+ */
 class MailClassroomWorker(
     appContext: Context,
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val app = applicationContext as? IshaApp ?: return Result.success()
-        val container = app.container
-        val settings = container.settings
-        val current = settings.current
-
+        val container = (applicationContext as? IshaApp)?.container ?: return Result.success()
+        val current = container.settings.current
         if (!current.hasComposioKey) return Result.success()
-        if (current.composioMode == dev.jasper.ishav2.data.ComposioKeyMode.CONNECT) {
-            // Connect MCP doesn't expose accounts() easily; best-effort skip
-        }
-
-        var hadWork = false
-
-        if (current.gmailPollingEnabled && current.composioMode == dev.jasper.ishav2.data.ComposioKeyMode.PROJECT) {
-            hadWork = checkGmail(container) || hadWork
-        }
-        if (current.classroomPollingEnabled && current.composioMode == dev.jasper.ishav2.data.ComposioKeyMode.PROJECT) {
-            hadWork = checkClassroom(container) || hadWork
-        }
-
-        return if (hadWork) Result.success() else Result.success()
+        if (current.gmailPollingEnabled) runCatching { checkGmail(container) }
+        if (current.classroomPollingEnabled) runCatching { checkClassroom(container) }
+        return Result.success()
     }
 
-    private suspend fun checkGmail(container: dev.jasper.ishav2.agent.AppContainer): Boolean {
+    private suspend fun checkGmail(container: AppContainer) {
         val settings = container.settings
-        val current = settings.current
-        val composio = container.composio
-        return try {
-            composio.ensure(force = false)
-            val since = if (current.gmailLastCheckedAt == 0L) System.currentTimeMillis() - 86_400_000L else current.gmailLastCheckedAt
-            val q = "is:unread after:${(since / 1000L)}"
-            val res = composio.execute(
-                "GMAIL_LIST_MESSAGES",
-                buildJsonObject {
-                    put("q", q)
-                    put("maxResults", 10)
-                }
-            )
-            val parsed = Json.parseToJsonElement(res)
-            val items = when (parsed) {
-                is JsonArray -> parsed
-                is JsonObject -> parsed["messages"]?.jsonArray
-                    ?: parsed["items"]?.jsonArray
-                    ?: parsed["data"]?.jsonArray
-                    ?: parsed["result"]?.let { r ->
-                        when (r) {
-                            is JsonArray -> r
-                            is JsonObject -> r["messages"]?.jsonArray ?: r["items"]?.jsonArray
-                            else -> null
-                        }
-                    }
-                else -> null
-            }
-            if (items.isNullOrEmpty()) {
-                settings.setGmailLastChecked(System.currentTimeMillis(), current.gmailLastMessageId)
-                return false
-            }
-            val firstId = items.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
-            if (firstId != null && firstId == current.gmailLastMessageId && current.gmailLastCheckedAt != 0L) {
-                settings.setGmailLastChecked(System.currentTimeMillis(), current.gmailLastMessageId)
-                return false
-            }
-            for (msg in items.take(5)) {
-                val obj = msg.jsonObject
-                val id = obj["id"]?.jsonPrimitive?.content ?: continue
-                val subject = obj["subject"]?.jsonPrimitive?.content ?: obj["snippet"]?.jsonPrimitive?.content ?: "New Gmail message"
-                val from = obj["from"]?.jsonPrimitive?.content ?: obj["sender"]?.jsonPrimitive?.content ?: ""
-                container.notifications.add(
-                    InboxItem(
-                        title = "Gmail: $subject",
-                        message = if (from.isNotBlank()) "From $from" else "New unread message",
-                        level = "info",
-                        source = "gmail"
-                    )
-                )
-                Notifier.postLocal(container.appContext, "Gmail: $subject", if (from.isNotBlank()) "From $from" else "New unread message")
-                if (firstId != null && id == firstId) break
-            }
-            settings.setGmailLastChecked(System.currentTimeMillis(), firstId ?: current.gmailLastMessageId)
-            true
-        } catch (e: Exception) {
-            settings.setGmailLastChecked(System.currentTimeMillis(), current.gmailLastMessageId)
-            false
+        val last = settings.current.gmailLastCheckedAt
+        // First run: start from now-ish instead of flooding with a day of mail.
+        val since = if (last == 0L) System.currentTimeMillis() - FIRST_RUN_LOOKBACK_MS else last
+        val fresh = container.gmail.fetch(GmailSync.UNREAD_QUERY, max = 15)
+            .filter { it.receivedAt > since && it.id != settings.current.gmailLastMessageId }
+        if (fresh.isEmpty()) {
+            if (last == 0L) settings.setGmailLastChecked(since, settings.current.gmailLastMessageId)
+            return
         }
+        for (mail in fresh.take(MAX_ALERTS).reversed()) {
+            val title = "Gmail: ${mail.subject}"
+            val message = listOf("From ${mail.from}".takeIf { mail.from.isNotBlank() }, mail.snippet.takeIf { it.isNotBlank() })
+                .filterNotNull()
+                .joinToString("\n")
+                .ifBlank { "New unread message" }
+            container.notifications.add(InboxItem(title = title, message = message, source = "gmail"))
+            Notifier.postLocal(container.appContext, title, message.take(160))
+        }
+        if (fresh.size > MAX_ALERTS) {
+            val more = fresh.size - MAX_ALERTS
+            container.notifications.add(
+                InboxItem(title = "Gmail", message = "…and $more more unread. See the Mail digest.", source = "gmail")
+            )
+        }
+        val newest = fresh.maxBy { it.receivedAt }
+        settings.setGmailLastChecked(newest.receivedAt, newest.id)
     }
 
-    private suspend fun checkClassroom(container: dev.jasper.ishav2.agent.AppContainer): Boolean {
+    private suspend fun checkClassroom(container: AppContainer) {
         val settings = container.settings
-        val current = settings.current
-        val composio = container.composio
-        return try {
-            composio.ensure(force = false)
-            val res = composio.execute(
-                "GOOGLECLASSROOM_LIST_COURSES",
-                buildJsonObject { put("pageSize", 5) }
-            )
-            val parsed = Json.parseToJsonElement(res)
-            val courses = when (parsed) {
-                is JsonArray -> parsed
-                is JsonObject -> parsed["courses"]?.jsonArray
-                    ?: parsed["items"]?.jsonArray
-                    ?: parsed["data"]?.jsonArray
-                    ?: parsed["result"]?.let { r ->
-                        when (r) {
-                            is JsonArray -> r
-                            is JsonObject -> r["courses"]?.jsonArray ?: r["items"]?.jsonArray
-                            else -> null
-                        }
-                    }
-                else -> null
-            }
-            if (courses.isNullOrEmpty()) {
-                settings.setClassroomLastChecked(System.currentTimeMillis(), current.classroomLastActivityId)
-                return false
-            }
-            var foundNew = false
-            for (c in courses.take(3)) {
-                val cobj = c.jsonObject
-                val cid = cobj["id"]?.jsonPrimitive?.content ?: continue
-                val cname = cobj["name"]?.jsonPrimitive?.content ?: "Classroom"
-                val ann = runCatching {
-                    composio.execute(
-                        "GOOGLECLASSROOM_LIST_ANNOUNCEMENTS",
-                        buildJsonObject {
-                            put("courseId", cid)
-                            put("pageSize", 5)
-                        }
-                    )
-                }.getOrNull() ?: continue
-                val p2 = Json.parseToJsonElement(ann)
-                val anns = when (p2) {
-                    is JsonArray -> p2
-                    is JsonObject -> p2["announcements"]?.jsonArray
-                        ?: p2["items"]?.jsonArray
-                        ?: p2["data"]?.jsonArray
-                        ?: p2["result"]?.let { r ->
-                            when (r) {
-                                is JsonArray -> r
-                                is JsonObject -> r["announcements"]?.jsonArray ?: r["items"]?.jsonArray
-                                else -> null
-                            }
-                        }
-                    else -> null
-                }
-                if (!anns.isNullOrEmpty()) {
-                    val a = anns.first().jsonObject
-                    val aid = a["id"]?.jsonPrimitive?.content ?: cid + ":" + System.currentTimeMillis()
-                    if (aid != current.classroomLastActivityId || current.classroomLastCheckedAt == 0L) {
-                        val text = a["text"]?.jsonPrimitive?.content ?: "New announcement"
-                        container.notifications.add(
-                            InboxItem(
-                                title = "Classroom: $cname",
-                                message = text.take(200),
-                                level = "info",
-                                source = "classroom"
-                            )
-                        )
-                        Notifier.postLocal(container.appContext, "Classroom: $cname", text.take(120))
-                        settings.setClassroomLastChecked(System.currentTimeMillis(), aid)
-                        foundNew = true
-                        break
-                    }
-                }
-            }
-            if (!foundNew) settings.setClassroomLastChecked(System.currentTimeMillis(), current.classroomLastActivityId)
-            foundNew
-        } catch (e: Exception) {
-            settings.setClassroomLastChecked(System.currentTimeMillis(), current.classroomLastActivityId)
-            false
+        val last = settings.current.classroomLastCheckedAt
+        val since = if (last == 0L) System.currentTimeMillis() - FIRST_RUN_LOOKBACK_MS else last
+        val fresh = container.classroom.fetchAnnouncements(since)
+            .filter { it.id != settings.current.classroomLastActivityId }
+        if (fresh.isEmpty()) {
+            if (last == 0L) settings.setClassroomLastChecked(since, settings.current.classroomLastActivityId)
+            return
         }
+        for (post in fresh.take(MAX_ALERTS).reversed()) {
+            val title = "Classroom: ${post.course}"
+            container.notifications.add(InboxItem(title = title, message = post.text.take(400), source = "classroom"))
+            Notifier.postLocal(container.appContext, title, post.text.take(160))
+        }
+        val newest = fresh.maxBy { it.createdAt }
+        settings.setClassroomLastChecked(newest.createdAt, newest.id)
+        // A new post often means new work: refresh the Due list too.
+        container.sync.syncDeadlines()
     }
 
-    private fun kotlinx.serialization.json.JsonElement.jsonArrayOrEmpty(): JsonArray? = null
+    private companion object {
+        const val MAX_ALERTS = 5
+        const val FIRST_RUN_LOOKBACK_MS = 30L * 60 * 1000
+    }
 }

@@ -29,6 +29,12 @@ class BudgetViewModel(private val container: AppContainer) : ViewModel() {
 
     val data = store.data
 
+    /** Whether the per-day expense/income list is collapsed (remembered across launches). */
+    val hideTransactions = container.settings.settings.map { it.hideTransactions }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, container.settings.current.hideTransactions)
+
+    fun setHideTransactions(hidden: Boolean) = container.settings.setHideTransactions(hidden)
+
     private val _month = MutableStateFlow(YearMonth.now())
     val month = _month.asStateFlow()
 

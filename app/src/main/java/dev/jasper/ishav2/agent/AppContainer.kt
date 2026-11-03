@@ -9,6 +9,13 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import dev.jasper.ishav2.data.ConversationStore
 import dev.jasper.ishav2.data.BudgetStore
+import dev.jasper.ishav2.data.DeadlineStore
+import dev.jasper.ishav2.data.MailDigestStore
+import dev.jasper.ishav2.net.ClassroomSync
+import dev.jasper.ishav2.net.ComposioCalls
+import dev.jasper.ishav2.net.GmailSync
+import dev.jasper.ishav2.notify.DeadlineReceiver
+import dev.jasper.ishav2.worker.SyncWorker
 import dev.jasper.ishav2.data.MemoryStore
 import dev.jasper.ishav2.data.NotificationStore
 import dev.jasper.ishav2.data.ReminderStore
@@ -44,6 +51,8 @@ class AppContainer(context: Context) {
     val memory = MemoryStore(File(appContext.filesDir, "memory.json"))
     val reminders = ReminderStore(File(appContext.filesDir, "reminders.json"))
     val budget = BudgetStore(File(appContext.filesDir, "budget.json"))
+    val deadlines = DeadlineStore(File(appContext.filesDir, "deadlines.json"))
+    val mailDigest = MailDigestStore(File(appContext.filesDir, "mail_digest.json"))
     val network = NetworkMonitor(appContext)
     val models = LocalModelManager(appContext, settings)
     val localLlm = LocalLlm(appContext)
@@ -54,14 +63,24 @@ class AppContainer(context: Context) {
     val composioMcp = ComposioMcp(settings)
     val composio = ComposioManager(settings, composioRest, composioMcp)
     val budgetAssistant = BudgetAssistant(budget, notifier)
-    val nativeTools = NativeTools(appContext, notifications, notifier, memory, reminders, budget, budgetAssistant)
+    val nativeTools = NativeTools(
+        appContext, notifications, notifier, memory, reminders, budget, budgetAssistant,
+        deadlines, mailDigest
+    )
     val runner = AgentRunner(
         settings, gemini, claude, composio, nativeTools, approvals,
-        memory, models, localLlm, network, budgetAssistant
+        memory, models, localLlm, network, budgetAssistant, deadlines, mailDigest
     )
 
     /** App-scoped chat: the agent run outlives every screen and ViewModel. */
     val chat = ChatSession(settings, conversations, composio, runner, approvals)
+
+    private val composioCalls = ComposioCalls(settings, composio)
+    val classroom = ClassroomSync(composioCalls)
+    val gmail = GmailSync(composioCalls)
+
+    /** Classroom deadlines + Gmail digest, saved on the phone for offline use. */
+    val sync = SyncCenter(settings, network, deadlines, mailDigest, classroom, gmail) { chat }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -70,6 +89,12 @@ class AppContainer(context: Context) {
         notifier.ensureChannels()
         scheduleMailPolling(appContext)
         BriefingWorker.schedule(appContext, settings.current, ExistingWorkPolicy.KEEP)
+        SyncWorker.schedule(appContext)
+        // Deadline heads-ups follow the saved list: re-armed on launch (alarms
+        // don't survive reboots or force-stops) and on every change.
+        scope.launch {
+            deadlines.data.collect { DeadlineReceiver.sync(appContext, it.items) }
+        }
         // Alarms do not survive force-stops; re-arm pending reminders on launch.
         ReminderReceiver.rearmAll(appContext, reminders.upcoming())
         if (settings.current.hasComposioKey) {

@@ -23,7 +23,11 @@ import dev.jasper.ishav2.ui.budget.BudgetScreen
 import dev.jasper.ishav2.ui.budget.BudgetViewModel
 import dev.jasper.ishav2.ui.chat.ChatScreen
 import dev.jasper.ishav2.ui.chat.ChatViewModel
+import dev.jasper.ishav2.ui.deadlines.DeadlinesScreen
+import dev.jasper.ishav2.ui.deadlines.DeadlinesViewModel
 import dev.jasper.ishav2.ui.inbox.InboxScreen
+import dev.jasper.ishav2.ui.mail.MailDigestScreen
+import dev.jasper.ishav2.ui.mail.MailDigestViewModel
 import dev.jasper.ishav2.ui.inbox.InboxViewModel
 import dev.jasper.ishav2.ui.models.ModelsScreen
 import dev.jasper.ishav2.ui.models.ModelsViewModel
@@ -38,6 +42,8 @@ private const val ROUTE_APPS = "apps"
 private const val ROUTE_INBOX = "inbox"
 private const val ROUTE_MODELS = "models"
 private const val ROUTE_BUDGET = "budget"
+private const val ROUTE_DEADLINES = "deadlines"
+private const val ROUTE_MAIL = "mail"
 
 /** True once the current screen has finished its enter transition. */
 private val NavHostController.settled: Boolean
@@ -144,8 +150,29 @@ fun IshaNav(
                 onOpenApps = { navController.go(ROUTE_APPS) },
                 onOpenInbox = { navController.go(ROUTE_INBOX) },
                 onOpenModels = { navController.go(ROUTE_MODELS) },
-                onOpenBudget = { navController.go(ROUTE_BUDGET) }
+                onOpenBudget = { navController.go(ROUTE_BUDGET) },
+                onOpenDeadlines = { navController.go(ROUTE_DEADLINES) },
+                onOpenMail = { navController.go(ROUTE_MAIL) }
             )
+        }
+
+        composable(ROUTE_DEADLINES) {
+            val vm: DeadlinesViewModel = viewModel(factory = DeadlinesViewModel.factory(container))
+            DeadlinesScreen(
+                vm = vm,
+                onBack = { navController.back() },
+                onOpenChat = {
+                    navController.navigate(ROUTE_CHAT) {
+                        popUpTo(ROUTE_CHAT) { inclusive = false }
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+
+        composable(ROUTE_MAIL) {
+            val vm: MailDigestViewModel = viewModel(factory = MailDigestViewModel.factory(container))
+            MailDigestScreen(vm = vm, onBack = { navController.back() })
         }
 
         composable(ROUTE_BUDGET) {
