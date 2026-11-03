@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Send
@@ -92,6 +93,7 @@ fun Composer(
     var importing by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var taskFormOpen by rememberSaveable { mutableStateOf(false) }
+    var emailFormOpen by rememberSaveable { mutableStateOf(false) }
     var pendingCamera by remember { mutableStateOf<File?>(null) }
 
     fun importUris(uris: List<Uri>) {
@@ -231,6 +233,16 @@ fun Composer(
                         }
                     )
                     DropdownMenuItem(
+                        text = { Text("Email") },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.Email, contentDescription = null, tint = IshaAccent)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            emailFormOpen = true
+                        }
+                    )
+                    DropdownMenuItem(
                         text = { Text("File") },
                         leadingIcon = {
                             Icon(
@@ -316,14 +328,27 @@ fun Composer(
         }
     }
 
+    // The forms fill the message box with a ready prompt, so it can be
+    // reviewed or tweaked before sending.
+    fun fill(prompt: String) {
+        text = if (text.isBlank()) prompt else text.trimEnd() + "\n\n" + prompt
+    }
+
     if (taskFormOpen) {
-        // The form fills the message box with a ready Google Tasks prompt, so
-        // it can be reviewed or tweaked before sending.
         TaskFormDialog(
             onDismiss = { taskFormOpen = false },
             onSubmit = { prompt ->
-                text = if (text.isBlank()) prompt else text.trimEnd() + "\n\n" + prompt
+                fill(prompt)
                 taskFormOpen = false
+            }
+        )
+    }
+    if (emailFormOpen) {
+        EmailFormDialog(
+            onDismiss = { emailFormOpen = false },
+            onSubmit = { prompt ->
+                fill(prompt)
+                emailFormOpen = false
             }
         )
     }

@@ -182,7 +182,9 @@ internal fun FormField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
-    singleLine: Boolean = true
+    singleLine: Boolean = true,
+    maxLines: Int = 4,
+    keyboardOptions: KeyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
 ) {
     val style = MaterialTheme.typography.bodyMedium
     NeuInset(
@@ -194,10 +196,10 @@ internal fun FormField(
             value = value,
             onValueChange = onValueChange,
             singleLine = singleLine,
-            maxLines = if (singleLine) 1 else 4,
+            maxLines = if (singleLine) 1 else maxLines,
             textStyle = style.copy(color = IshaInk),
             cursorBrush = SolidColor(IshaAccent),
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            keyboardOptions = keyboardOptions,
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (singleLine) Modifier else Modifier.heightIn(min = 44.dp)),
