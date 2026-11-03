@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -13,10 +15,17 @@ android {
         applicationId = "dev.jasper.ishav2"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.4.1"
+        versionCode = 6
+        versionName = "0.5.0"
 
         vectorDrawables { useSupportLibrary = true }
+
+        // Groq key comes from local.properties (git-ignored): groq.api.key=gsk_...
+        val localProps = Properties().apply {
+            rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+        }
+        val groqKey = localProps.getProperty("groq.api.key").orEmpty()
+        buildConfigField("String", "GROQ_API_KEY", "\"$groqKey\"")
 
         // On-device LLM native libs are large; ship phones (arm64) and the emulator only.
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }

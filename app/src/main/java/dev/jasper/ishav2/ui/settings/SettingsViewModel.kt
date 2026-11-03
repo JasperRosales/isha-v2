@@ -24,8 +24,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     private val _testingGemini = MutableStateFlow(false)
     val testingGemini = _testingGemini.asStateFlow()
 
-    private val _testingClaude = MutableStateFlow(false)
-    val testingClaude = _testingClaude.asStateFlow()
+    private val _testingGroq = MutableStateFlow(false)
+    val testingGroq = _testingGroq.asStateFlow()
 
     private val _testingComposio = MutableStateFlow(false)
     val testingComposio = _testingComposio.asStateFlow()
@@ -41,39 +41,37 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         _events.tryEmit(if (value.isBlank()) "Gemini key removed." else "Gemini key saved.")
     }
 
-    fun saveClaudeKey(value: String) {
-        container.settings.saveClaudeKey(value)
-        _events.tryEmit(if (value.isBlank()) "Claude key removed." else "Claude key saved · used when Gemini's limit is reached.")
+    fun saveGroqKey(value: String) {
+        container.settings.saveGroqKey(value)
+        _events.tryEmit(
+            when {
+                value.isNotBlank() -> "Groq key saved."
+                container.settings.current.hasGroqKey -> "Using the built-in Groq key."
+                else -> "Groq key removed · Gemini will answer."
+            }
+        )
     }
 
-    fun setClaudeModel(value: String) {
-        container.settings.setClaudeModel(value)
-        _events.tryEmit("Backup model set to ${container.settings.current.claudeModel}")
+    fun setGroqModel(value: String) {
+        container.settings.setGroqModel(value)
+        _events.tryEmit("Groq model set to ${container.settings.current.groqModel}")
     }
 
-    fun testClaude() {
-        if (_testingClaude.value) return
+    fun testGroq() {
+        if (_testingGroq.value) return
         viewModelScope.launch(Dispatchers.IO) {
-            _testingClaude.value = true
+            _testingGroq.value = true
             try {
-                val messages = kotlinx.serialization.json.buildJsonArray {
-                    add(kotlinx.serialization.json.buildJsonObject {
-                        put("role", kotlinx.serialization.json.JsonPrimitive("user"))
-                        put("content", kotlinx.serialization.json.JsonPrimitive("Reply with just: ok"))
-                    })
-                }
-                container.claude.stream(
-                    system = "You are a connection test.",
-                    messages = messages,
-                    tools = null,
-                    onText = {},
-                    onToolUse = {}
+                val models = container.groq.listModels()
+                val current = container.groq.model
+                _events.emit(
+                    if (models.contains(current)) "Groq works · ${models.size} models available"
+                    else "Groq works, but \"$current\" is not in the list. Pick another model."
                 )
-                _events.emit("Claude works · ${container.claude.model}")
             } catch (error: Exception) {
-                _events.emit(error.message ?: "Claude test failed.")
+                _events.emit(error.message ?: "Groq test failed.")
             } finally {
-                _testingClaude.value = false
+                _testingGroq.value = false
             }
         }
     }

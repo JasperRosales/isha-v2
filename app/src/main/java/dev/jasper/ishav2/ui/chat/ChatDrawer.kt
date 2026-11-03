@@ -295,7 +295,7 @@ fun ChatDrawer(
                     title = "Offline brain",
                     subtitle = when (brain) {
                         is Brain.Local -> "Answering on-device · ${brain.model.name}"
-                        Brain.Gemini, Brain.Claude -> "Online now · offline models ready to use"
+                        Brain.Groq, Brain.Gemini -> "Online now · offline models ready to use"
                         is Brain.Missing -> "Set up a brain to start"
                     },
                     onClick = {

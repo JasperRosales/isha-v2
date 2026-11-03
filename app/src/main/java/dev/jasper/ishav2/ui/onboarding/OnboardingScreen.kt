@@ -81,11 +81,12 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit, onOffline: () 
 
     fun start() {
         val gemini = geminiKey.trim()
-        if (gemini.isBlank()) {
-            error = "Add a Gemini API key so isha can think."
+        // Groq is the main brain (built-in key); Gemini is only needed without one.
+        if (gemini.isBlank() && !container.settings.current.hasGroqKey) {
+            error = "Add a Gemini API key so isha can think, or a Groq key in Settings."
             return
         }
-        container.settings.saveGeminiKey(gemini)
+        if (gemini.isNotBlank()) container.settings.saveGeminiKey(gemini)
         val composio = composioKey.trim()
         if (composio.isNotBlank()) {
             container.settings.saveComposioKey(composio)
@@ -159,13 +160,13 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit, onOffline: () 
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "Gemini API key",
+                        text = if (container.settings.current.hasGroqKey) "Gemini API key (backup)" else "Gemini API key",
                         color = IshaInk,
                         style = MaterialTheme.typography.titleMedium
                     )
                 }
                 Text(
-                    text = "Used for every reply and tool call. Free keys work.",
+                    text = if (container.settings.current.hasGroqKey) "Groq answers first. Gemini takes over when Groq's limit runs out and reads images. Free keys work." else "Used for every reply and tool call. Free keys work.",
                     color = IshaMuted,
                     style = MaterialTheme.typography.labelSmall
                 )
@@ -261,7 +262,7 @@ fun OnboardingScreen(container: AppContainer, onDone: () -> Unit, onOffline: () 
         )
         Spacer(Modifier.height(10.dp))
         Text(
-            text = "By starting, you agree that requests go to Google Gemini and, if configured, Composio. There is no analytics and no isha account.",
+            text = "By starting, you agree that requests go to Groq and Google Gemini and, if configured, Composio. There is no analytics and no isha account.",
             color = IshaMuted,
             fontSize = 10.sp,
             modifier = Modifier.padding(horizontal = 4.dp)

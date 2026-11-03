@@ -160,13 +160,13 @@ fun ModelsScreen(vm: ModelsViewModel, onBack: () -> Unit) {
                         BrainOption(
                             selected = settings.brainMode == BrainMode.AUTO,
                             title = "Automatic",
-                            body = "Gemini + your apps when online, the on-device model when there's no signal.",
+                            body = "Groq (Gemini as backup) + your apps when online, the on-device model when there's no signal.",
                             onClick = { vm.setBrainMode(BrainMode.AUTO) }
                         )
                         BrainOption(
                             selected = settings.brainMode == BrainMode.ONLINE,
                             title = "Always online",
-                            body = "Only Gemini. Needs internet; full access to Composio apps and the web.",
+                            body = "Only the cloud (Groq, then Gemini). Needs internet; full access to Composio apps and the web.",
                             onClick = { vm.setBrainMode(BrainMode.ONLINE) }
                         )
                         BrainOption(

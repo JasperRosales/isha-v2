@@ -103,7 +103,7 @@ fun SettingsScreen(
     val composio by vm.composio.collectAsStateWithLifecycle()
     val testingGemini by vm.testingGemini.collectAsStateWithLifecycle()
     val testingComposio by vm.testingComposio.collectAsStateWithLifecycle()
-    val testingClaude by vm.testingClaude.collectAsStateWithLifecycle()
+    val testingGroq by vm.testingGroq.collectAsStateWithLifecycle()
     val cleared by vm.cleared.collectAsStateWithLifecycle()
     val memory by vm.memory.collectAsStateWithLifecycle()
     val installedModels by vm.installedModels.collectAsStateWithLifecycle()
@@ -114,8 +114,8 @@ fun SettingsScreen(
     var composioKey by rememberSaveable { mutableStateOf("") }
     var showGemini by rememberSaveable { mutableStateOf(false) }
     var showComposio by rememberSaveable { mutableStateOf(false) }
-    var claudeKey by rememberSaveable { mutableStateOf("") }
-    var showClaude by rememberSaveable { mutableStateOf(false) }
+    var groqKey by rememberSaveable { mutableStateOf("") }
+    var showGroq by rememberSaveable { mutableStateOf(false) }
     var modelField by rememberSaveable { mutableStateOf(settings.model) }
     var confirmAuto by remember { mutableStateOf(false) }
     var clearAction by remember { mutableStateOf<ClearAction?>(null) }
@@ -175,8 +175,81 @@ fun SettingsScreen(
             item { SectionLabel("Brain") }
             item {
                 SettingsCard(
-                    title = "Gemini API key",
-                    subtitle = "Powers every reply. Stored encrypted on this phone."
+                    title = "Main brain · Groq",
+                    subtitle = "Answers every chat first. Stored encrypted on this phone."
+                ) {
+                    KeyField(
+                        value = groqKey,
+                        onValueChange = { groqKey = it },
+                        placeholder = if (settings.hasGroqKey) "Saved · paste to replace" else "gsk_…",
+                        visible = showGroq,
+                        onToggle = { showGroq = !showGroq }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        NeuButton(
+                            text = "Save",
+                            onClick = {
+                                vm.saveGroqKey(groqKey)
+                                groqKey = ""
+                            },
+                            accent = true,
+                            enabled = groqKey.isNotBlank(),
+                            modifier = Modifier.weight(1f)
+                        )
+                        NeuButton(
+                            text = if (testingGroq) "Testing…" else "Test",
+                            onClick = vm::testGroq,
+                            enabled = settings.hasGroqKey && !testingGroq,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (settings.hasGroqKey) {
+                            NeuButton(
+                                text = "Reset key",
+                                onClick = {
+                                    vm.saveGroqKey("")
+                                    groqKey = ""
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        NeuButton(
+                            text = "Get a key",
+                            onClick = { openBrowser(context, "https://console.groq.com/keys") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        for (suggestion in AppSettings.GROQ_MODEL_SUGGESTIONS) {
+                            val selected = settings.groqModel == suggestion
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(if (selected) IshaAccent else IshaCreamDeep)
+                                    .clickable { vm.setGroqModel(suggestion) }
+                                    .padding(horizontal = 11.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = suggestion,
+                                    color = if (selected) IshaOnAccent else IshaInk,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                SettingsCard(
+                    title = "Backup brain · Gemini",
+                    subtitle = "Takes over when Groq's free limit runs out or Groq is down, and reads images and PDFs. Stored encrypted on this phone."
                 ) {
                     KeyField(
                         value = geminiKey,
@@ -226,8 +299,8 @@ fun SettingsScreen(
 
             item {
                 SettingsCard(
-                    title = "Model",
-                    subtitle = "Used for chat and tool calling."
+                    title = "Gemini model",
+                    subtitle = "Used when Gemini answers."
                 ) {
                     KeyField(
                         value = modelField,
@@ -272,79 +345,6 @@ fun SettingsScreen(
             }
 
             item {
-                SettingsCard(
-                    title = "Backup brain · Claude",
-                    subtitle = "Optional. Gemini stays first; when its free limit runs out (or Gemini is down), isha keeps chatting with Claude. Stored encrypted on this phone."
-                ) {
-                    KeyField(
-                        value = claudeKey,
-                        onValueChange = { claudeKey = it },
-                        placeholder = if (settings.hasClaudeKey) "Saved · paste to replace" else "sk-ant-…",
-                        visible = showClaude,
-                        onToggle = { showClaude = !showClaude }
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NeuButton(
-                            text = "Save",
-                            onClick = {
-                                vm.saveClaudeKey(claudeKey)
-                                claudeKey = ""
-                            },
-                            accent = true,
-                            enabled = claudeKey.isNotBlank(),
-                            modifier = Modifier.weight(1f)
-                        )
-                        NeuButton(
-                            text = if (testingClaude) "Testing…" else "Test",
-                            onClick = vm::testClaude,
-                            enabled = settings.hasClaudeKey && !testingClaude,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (settings.hasClaudeKey) {
-                            NeuButton(
-                                text = "Remove key",
-                                onClick = {
-                                    vm.saveClaudeKey("")
-                                    claudeKey = ""
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        NeuButton(
-                            text = "Get a key",
-                            onClick = { openBrowser(context, "https://console.anthropic.com/settings/keys") },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        for (suggestion in AppSettings.CLAUDE_MODEL_SUGGESTIONS) {
-                            val selected = settings.claudeModel == suggestion
-                            Box(
-                                Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(if (selected) IshaAccent else IshaCreamDeep)
-                                    .clickable { vm.setClaudeModel(suggestion) }
-                                    .padding(horizontal = 11.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = suggestion,
-                                    color = if (selected) IshaOnAccent else IshaInk,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            item {
                 val active = installedModels.firstOrNull { it.id == settings.localModelId }
                 SettingsCard(
                     title = "Offline brain",
@@ -352,8 +352,8 @@ fun SettingsScreen(
                 ) {
                     Text(
                         text = when (settings.brainMode) {
-                            BrainMode.AUTO -> "Automatic: Gemini online, on-device offline"
-                            BrainMode.ONLINE -> "Always online (Gemini)"
+                            BrainMode.AUTO -> "Automatic: Groq/Gemini online, on-device offline"
+                            BrainMode.ONLINE -> "Always online (Groq, then Gemini)"
                             BrainMode.OFFLINE -> "Always offline (on-device)"
                         },
                         color = IshaInk,
@@ -767,7 +767,7 @@ fun SettingsScreen(
                     subtitle = "A private assistant that runs only on this phone. No PC server, no analytics."
                 ) {
                     Text(
-                        text = "Network calls go to Google Gemini for replies and to Composio only if you add a key. Web search and page reads go directly from this phone.",
+                        text = "Network calls go to Groq (then Google Gemini) for replies and to Composio only if you add a key. Web search and page reads go directly from this phone.",
                         color = IshaMuted,
                         style = MaterialTheme.typography.bodyMedium
                     )

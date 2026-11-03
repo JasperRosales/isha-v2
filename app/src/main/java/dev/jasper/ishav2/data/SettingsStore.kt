@@ -12,7 +12,7 @@ enum class ApprovalMode { MANUAL, AUTO }
 enum class ComposioKeyMode { NONE, CONNECT, PROJECT, UNKNOWN }
 
 /**
- * Where replies come from. AUTO uses Gemini while the phone is online and
+ * Where replies come from. AUTO uses Groq (then Gemini) while the phone is online and
  * falls back to the downloaded on-device model when it is not.
  */
 enum class BrainMode { AUTO, ONLINE, OFFLINE }
@@ -21,9 +21,9 @@ data class AppSettings(
     val geminiKey: String = "",
     val composioKey: String = "",
     val model: String = DEFAULT_MODEL,
-    /** Backup brain: used when Gemini's free quota runs out or Gemini fails. */
-    val claudeKey: String = "",
-    val claudeModel: String = DEFAULT_CLAUDE_MODEL,
+    /** Main brain. Gemini takes over when Groq's free limits run out or Groq fails. */
+    val groqKey: String = "",
+    val groqModel: String = DEFAULT_GROQ_MODEL,
     val approvalMode: ApprovalMode = ApprovalMode.MANUAL,
     val maxSteps: Int = DEFAULT_MAX_STEPS,
     val userId: String = "",
@@ -47,10 +47,10 @@ data class AppSettings(
     val hideTransactions: Boolean = false
 ) {
     val hasGeminiKey: Boolean get() = geminiKey.isNotBlank()
-    val hasClaudeKey: Boolean get() = claudeKey.isNotBlank()
+    val hasGroqKey: Boolean get() = groqKey.isNotBlank()
 
-    /** Any cloud brain is configured (Gemini first, Claude as backup). */
-    val hasCloudKey: Boolean get() = hasGeminiKey || hasClaudeKey
+    /** Any cloud brain is configured (Groq first, Gemini as backup). */
+    val hasCloudKey: Boolean get() = hasGroqKey || hasGeminiKey
     val hasLocalModel: Boolean get() = !localModelId.isNullOrBlank()
 
     /** True when the app can answer at all: a cloud key or an on-device model. */
@@ -68,11 +68,12 @@ data class AppSettings(
     companion object {
         const val DEFAULT_MODEL = "gemini-3.5-flash-lite"
         const val DEFAULT_MAX_STEPS = 20
-        const val DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5"
-        val CLAUDE_MODEL_SUGGESTIONS = listOf(
-            "claude-haiku-5-5",
-            "claude-sonnet-5-5",
-            "claude-opus-5-5"
+        /** Batches several tool calls per turn: fewer requests against Groq's 8k tokens/min free limit. */
+        const val DEFAULT_GROQ_MODEL = "qwen/qwen3.8-27b"
+        val GROQ_MODEL_SUGGESTIONS = listOf(
+            "qwen/qwen3.8-27b",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b"
         )
         val MODEL_SUGGESTIONS = listOf(
             "gemini-3.5-flash-lite",
@@ -100,15 +101,16 @@ class SettingsStore(context: Context) {
         _settings.value = current.copy(composioKey = value.trim())
     }
 
-    fun saveClaudeKey(value: String) {
-        secure.put(KEY_CLAUDE, value.trim())
-        _settings.value = current.copy(claudeKey = value.trim())
+    /** Blank falls back to the key built into the app (local.properties), if any. */
+    fun saveGroqKey(value: String) {
+        secure.put(KEY_GROQ, value.trim())
+        _settings.value = current.copy(groqKey = value.trim().ifBlank { BUILT_IN_GROQ_KEY })
     }
 
-    fun setClaudeModel(value: String) {
-        val model = value.trim().ifBlank { AppSettings.DEFAULT_CLAUDE_MODEL }
-        prefs.edit().putString(KEY_CLAUDE_MODEL, model).apply()
-        _settings.value = current.copy(claudeModel = model)
+    fun setGroqModel(value: String) {
+        val model = value.trim().ifBlank { AppSettings.DEFAULT_GROQ_MODEL }
+        prefs.edit().putString(KEY_GROQ_MODEL, model).apply()
+        _settings.value = current.copy(groqModel = model)
     }
 
     fun setModel(value: String) {
@@ -226,7 +228,7 @@ class SettingsStore(context: Context) {
     fun clearEverything() {
         secure.clear()
         prefs.edit().clear().apply()
-        _settings.value = AppSettings(userId = newUserId(), onboarded = false)
+        _settings.value = AppSettings(groqKey = BUILT_IN_GROQ_KEY, userId = newUserId(), onboarded = false)
         prefs.edit().putString(KEY_USER_ID, _settings.value.userId).apply()
     }
 
@@ -245,9 +247,9 @@ class SettingsStore(context: Context) {
             geminiKey = secure.get(KEY_GEMINI).orEmpty(),
             composioKey = secure.get(KEY_COMPOSIO).orEmpty(),
             model = model,
-            claudeKey = secure.get(KEY_CLAUDE).orEmpty(),
-            claudeModel = prefs.getString(KEY_CLAUDE_MODEL, null)
-                ?.takeIf { it.isNotBlank() } ?: AppSettings.DEFAULT_CLAUDE_MODEL,
+            groqKey = secure.get(KEY_GROQ)?.takeIf { it.isNotBlank() } ?: BUILT_IN_GROQ_KEY,
+            groqModel = prefs.getString(KEY_GROQ_MODEL, null)
+                ?.takeIf { it.isNotBlank() } ?: AppSettings.DEFAULT_GROQ_MODEL,
             approvalMode = approval,
             maxSteps = prefs.getInt(KEY_MAX_STEPS, AppSettings.DEFAULT_MAX_STEPS),
             userId = userId,
@@ -280,8 +282,10 @@ class SettingsStore(context: Context) {
         const val KEY_GEMINI = "gemini_key"
         const val KEY_COMPOSIO = "composio_key"
         const val KEY_MODEL = "model"
-        const val KEY_CLAUDE = "claude_key"
-        const val KEY_CLAUDE_MODEL = "claude_model"
+        const val KEY_GROQ = "groq_key"
+        const val KEY_GROQ_MODEL = "groq_model"
+        /** Optional key baked in at build time from local.properties (groq.api.key). */
+        val BUILT_IN_GROQ_KEY: String = dev.jasper.ishav2.BuildConfig.GROQ_API_KEY
         const val KEY_APPROVAL = "approval_mode"
         const val KEY_MAX_STEPS = "max_steps"
         const val KEY_USER_ID = "user_id"

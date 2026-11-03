@@ -97,7 +97,7 @@ class ChatSession(
         if (_busy.value) return false
         if (text.isBlank() && attachments.isEmpty()) return false
         if (!settings.current.canChat) {
-            _events.tryEmit("Add a Gemini API key in Settings, or download an offline model.")
+            _events.tryEmit("Add a Groq or Gemini API key in Settings, or download an offline model.")
             return false
         }
         val current = _conversation.value ?: Conversation().also {

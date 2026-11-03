@@ -35,12 +35,12 @@ class ChatViewModel(private val container: AppContainer) : ViewModel() {
     val busy = session.busy
     val events = session.events
 
-    /** What will answer the next message, e.g. Gemini or the on-device model. */
+    /** What will answer the next message, e.g. Groq, Gemini or the on-device model. */
     val brain = combine(
         container.settings.settings,
         container.network.online,
         container.models.installed,
-        container.runner.geminiLimitedUntil
+        container.runner.groqLimitedUntil
     ) { _, _, _, _ -> container.runner.plannedBrain() }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), container.runner.plannedBrain())

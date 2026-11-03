@@ -345,7 +345,7 @@ private fun ChatTopBar(
             Spacer(Modifier.width(8.dp))
             NeuIconButton(
                 icon = if (offline) Icons.Rounded.OfflineBolt else Icons.Rounded.Cloud,
-                contentDescription = if (offline) "Answering on-device" else "Answering with Gemini",
+                contentDescription = if (offline) "Answering on-device" else "Answering online",
                 onClick = onBrain,
                 tint = if (offline) IshaWarn else IshaMuted,
                 size = 40.dp
@@ -544,10 +544,10 @@ private fun topSubtitle(
     busy -> "typing…"
     brain is Brain.Local -> "Offline · ${brain.model.name}"
     brain is Brain.Missing -> "Not set up yet"
-    brain is Brain.Claude -> if (connected) "Online · Claude (backup) · $toolCount app tools" else "Online · Claude (backup)"
-    connected -> "Online · $toolCount app tools ready"
-    hasError -> "Online · apps not connected"
-    else -> "Online · Gemini"
+    brain is Brain.Gemini -> if (connected) "Online · Gemini (backup) · $toolCount app tools" else "Online · Gemini (backup)"
+    connected -> "Online · Groq · $toolCount app tools ready"
+    hasError -> "Online · Groq · apps not connected"
+    else -> "Online · Groq"
 }
 
 /** Bring the last item in, then scroll to the true end so long replies stay visible. */
