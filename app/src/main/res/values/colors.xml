@@ -3,5 +3,6 @@
     <color name="cream_deep">#0F0C08</color>
     <color name="accent">#FF8A3D</color>
     <color name="ink">#F7EEDD</color>
-    <color name="splash_icon_bg">#FF9351</color>
+    <color name="splash_icon_bg">#141417</color>
+    <color name="splash_bg">#0A0A0B</color>
 </resources>

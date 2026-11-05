@@ -27,6 +27,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jasper.ishav2.ui.IshaNav
 import dev.jasper.ishav2.ui.splash.IshaSplash
+import dev.jasper.ishav2.ui.splash.SPLASH_INTRO_MS
 import dev.jasper.ishav2.ui.theme.IshaTheme
 import kotlinx.coroutines.delay
 
@@ -145,6 +146,6 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_BUDGET = "open_budget"
         const val EXTRA_CONVERSATION_ID = "conversation_id"
         private const val REQUEST_NOTIFICATIONS = 1001
-        private const val SPLASH_MS = 1_350L
+        private const val SPLASH_MS = SPLASH_INTRO_MS + 450L
     }
 }

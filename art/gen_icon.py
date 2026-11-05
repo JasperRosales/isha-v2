@@ -166,10 +166,7 @@ if __name__ == "__main__":
     open(os.path.join(out_dir, "isha.svg"), "w").write(svg(SHAPES, 512) + "\n")
     open(os.path.join(out_dir, "isha_round.svg"), "w").write(svg(SHAPES, 512, round_clip=True) + "\n")
     if res:
-        fg = "\n".join(vd_path(*s) for s in SHAPES)
-        open(os.path.join(res, "ic_launcher_foreground.xml"), "w").write(vector(fg))
-        open(os.path.join(res, "ic_launcher_background.xml"), "w").write(vector(GRADIENT_BG, aapt=True))
-        open(os.path.join(res, "ic_launcher_monochrome.xml"), "w").write(vector(vd_mono(mono_shapes())))
+        # The launcher icon now comes from the animated logo: see art/gen_logo_icon.py.
         # In-app avatar: the round icon cropped to the 72-unit visible circle.
         avatar = ('    <group android:translateX="-18" android:translateY="-18">\n'
                   f'        <clip-path android:pathData="{circle(54, 54, 36)}" />\n'
