@@ -55,6 +55,31 @@ class ChatSession(
 
     private var runJob: Job? = null
 
+    private val _sharedDraft = MutableStateFlow<SharedDraft?>(null)
+
+    /** Content shared into isha from another app, waiting to be placed in the composer. */
+    val sharedDraft: StateFlow<SharedDraft?> = _sharedDraft.asStateFlow()
+
+    /**
+     * Opens a fresh chat with [draft] ready in the composer; the user adds a question and
+     * sends it themselves. If a reply is still generating, the current chat is kept so the
+     * run isn't cancelled, and the draft waits in its composer instead.
+     */
+    fun share(draft: SharedDraft) {
+        scope.launch {
+            if (!_busy.value) {
+                opened = true // the share wins over restoring the last chat
+                startFresh()
+            }
+            _sharedDraft.value = draft
+        }
+    }
+
+    /** Called by the composer once it has taken the draft. */
+    fun consumeSharedDraft(draft: SharedDraft) {
+        _sharedDraft.compareAndSet(draft, null)
+    }
+
     @Volatile
     private var opened = false
 
@@ -265,3 +290,6 @@ class ChatSession(
         private const val PERSIST_DURING_STREAM_MS = 2_000L
     }
 }
+
+/** Text and files shared into isha from another app's share sheet. */
+data class SharedDraft(val text: String, val parts: List<Part>)

@@ -87,16 +87,20 @@ class AppContainer(context: Context) {
     init {
         FileStore.attachmentsDir(appContext)
         notifier.ensureChannels()
-        scheduleMailPolling(appContext)
-        BriefingWorker.schedule(appContext, settings.current, ExistingWorkPolicy.KEEP)
-        SyncWorker.schedule(appContext)
+        // Scheduling and alarm re-arming are binder calls and disk work: keep them off
+        // the main thread so the first frame (and the splash) isn't held up.
+        scope.launch {
+            scheduleMailPolling(appContext)
+            BriefingWorker.schedule(appContext, settings.current, ExistingWorkPolicy.KEEP)
+            SyncWorker.schedule(appContext)
+            // Alarms do not survive force-stops; re-arm pending reminders on launch.
+            ReminderReceiver.rearmAll(appContext, reminders.upcoming())
+        }
         // Deadline heads-ups follow the saved list: re-armed on launch (alarms
         // don't survive reboots or force-stops) and on every change.
         scope.launch {
             deadlines.data.collect { DeadlineReceiver.sync(appContext, it.items) }
         }
-        // Alarms do not survive force-stops; re-arm pending reminders on launch.
-        ReminderReceiver.rearmAll(appContext, reminders.upcoming())
         if (settings.current.hasComposioKey) {
             scope.launch { runCatching { composio.ensure() } }
         }

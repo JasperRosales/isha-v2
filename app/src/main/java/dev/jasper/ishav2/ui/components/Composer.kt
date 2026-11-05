@@ -42,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import dev.jasper.ishav2.agent.SharedDraft
 import dev.jasper.ishav2.data.Part
 import dev.jasper.ishav2.ui.theme.IshaAccent
 import dev.jasper.ishav2.ui.theme.IshaCreamDeep
@@ -84,7 +86,9 @@ fun Composer(
     onSend: (String, List<Part>) -> Boolean,
     onStop: () -> Unit,
     onError: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    draft: SharedDraft? = null,
+    onDraftTaken: (SharedDraft) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -95,6 +99,17 @@ fun Composer(
     var taskFormOpen by rememberSaveable { mutableStateOf(false) }
     var emailFormOpen by rememberSaveable { mutableStateOf(false) }
     var pendingCamera by remember { mutableStateOf<File?>(null) }
+
+    // Something shared from another app: put it in the box so the user can add
+    // what they want isha to do with it before sending.
+    LaunchedEffect(draft) {
+        val shared = draft ?: return@LaunchedEffect
+        if (shared.text.isNotBlank()) {
+            text = if (text.isBlank()) shared.text else text.trimEnd() + "\n\n" + shared.text
+        }
+        attachments += shared.parts
+        onDraftTaken(shared)
+    }
 
     fun importUris(uris: List<Uri>) {
         if (uris.isEmpty()) return

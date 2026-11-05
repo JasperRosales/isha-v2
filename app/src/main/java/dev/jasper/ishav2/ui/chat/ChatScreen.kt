@@ -123,6 +123,7 @@ fun ChatScreen(
     val conversations by vm.conversations.collectAsState()
     val busy by vm.busy.collectAsState()
     val pending by vm.pendingApproval.collectAsState()
+    val sharedDraft by vm.sharedDraft.collectAsState()
     val settings by vm.settings.collectAsState()
     val composio by vm.composioStatus.collectAsState()
     val unread by vm.inboxUnread.collectAsState()
@@ -288,7 +289,9 @@ fun ChatScreen(
                         accepted
                     },
                     onStop = vm::stop,
-                    onError = vm::report
+                    onError = vm::report,
+                    draft = sharedDraft,
+                    onDraftTaken = vm::consumeSharedDraft
                 )
             }
         }

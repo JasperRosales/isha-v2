@@ -1,0 +1,12 @@
+# Baseline profile: ahead-of-time compiles isha's start-up and chat code at install,
+# so the first launches (splash, chat list, streaming replies) don't stutter while
+# ART is still interpreting. Compose and other libraries ship their own profiles.
+# Hand-written (no device for a Macrobenchmark run): broad, startup-heavy rules.
+HSPLdev/jasper/ishav2/IshaApp;->**(**)**
+HSPLdev/jasper/ishav2/MainActivity**;->**(**)**
+HSPLdev/jasper/ishav2/agent/**;->**(**)**
+HSPLdev/jasper/ishav2/data/**;->**(**)**
+HSPLdev/jasper/ishav2/util/**;->**(**)**
+HSPLdev/jasper/ishav2/net/**;->**(**)**
+HSPLdev/jasper/ishav2/ui/**;->**(**)**
+Ldev/jasper/ishav2/**;

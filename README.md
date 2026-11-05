@@ -25,6 +25,7 @@ The app is intentionally small in surface area and large in capability: a chat d
 - **Budget tracking (works offline).** Log spending and income by chat ("spent 150 on lunch", "got 3k allowance", "set food budget to 3000", "how much is left?") or from the **Budget** screen. Monthly and per-category limits, 80%/over-budget push alerts, month history, and an all-time balance (all income minus all spending). Budget commands work with no network and even with no model downloaded.
 - **Due: school deadlines (works offline).** Google Classroom assignments sync every 2 hours (and on demand) into a **Due** screen grouped as Overdue / Today / Tomorrow / This week / Later, with turned-in work marked done automatically. Add your own deadlines too. Reminders are scheduled on the phone (a day before and 2 hours before; date-only items at 7 PM the day before and 8 AM on the day), so they fire without internet. One tap sends a deadline to Google Tasks. isha can list, add and complete deadlines in chat, and the offline model reads them for "what's due?" questions.
 - **Mail digest (works offline).** Recent inbox mail (last 2 days, minus Promotions/Social) syncs every 2 hours and is saved on the phone with an isha-written summary that leads with what needs action. The summary is written by a model with no tools, so email text can't trigger actions. Readable offline; the offline model uses it for email questions.
+- **Share to isha.** Pick **Ask isha** in any app's share sheet to send text, links, images, PDFs or documents (up to 6 files) into a fresh chat. They land in the composer so you can add what you want done before sending; if a reply is still generating, the current chat is kept.
 - **Task form.** The composer's **+ → Task** opens a form (title, notes, due date, list) that fills the message box with a ready Google Tasks request.
 - **Daily briefing in the inbox.** The briefing lands in the inbox (tap to expand, Markdown rendered) instead of creating a new chat, and includes your saved deadlines.
 - **New mail / Classroom alerts.** Optional pushes for new unread Gmail and new Classroom announcements every 30 minutes, with either key type.
@@ -60,6 +61,13 @@ cd isha-v2
 printf 'sdk.dir=%s\n' "$HOME/Android/Sdk" > local.properties
 JAVA_HOME="$HOME/.local/opt/jdk-17" ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+For the build that is released (R8-shrunk, arm64 only, about 29 MB instead of about 78 MB, and noticeably smoother), build the release variant. It is signed with the same local debug key, so it installs over earlier debug builds and keeps your data:
+
+```bash
+JAVA_HOME="$HOME/.local/opt/jdk-17" ./gradlew assembleRelease
+adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
 If your SDK or JDK live elsewhere, point `sdk.dir` and `JAVA_HOME` at them. The debug APK is self-signed and suitable for sideloading; it is not a Play Store build.

@@ -15,8 +15,8 @@ android {
         applicationId = "dev.jasper.ishav2"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.5.2"
+        versionCode = 9
+        versionName = "0.6.0"
 
         vectorDrawables { useSupportLibrary = true }
 
@@ -27,17 +27,25 @@ android {
         val groqKey = localProps.getProperty("groq.api.key").orEmpty()
         buildConfigField("String", "GROQ_API_KEY", "\"$groqKey\"")
 
-        // On-device LLM native libs are large; ship phones (arm64) and the emulator only.
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
     buildTypes {
+        debug {
+            // On-device LLM native libs are large; debug ships phones (arm64) and the emulator.
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        }
         release {
-            isMinifyEnabled = false
+            // Phones only: the x86_64 engine (~30 MB) is just for the emulator.
+            ndk { abiFilters += listOf("arm64-v8a") }
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Sideloaded, not on the Play Store: signed with the same key as the earlier
+            // debug releases so it installs over them and keeps the user's data.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -73,6 +81,7 @@ dependencies {
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.profileinstaller)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

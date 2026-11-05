@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.jasper.ishav2.agent.AppContainer
+import dev.jasper.ishav2.agent.SharedDraft
 import dev.jasper.ishav2.data.ApprovalMode
 import dev.jasper.ishav2.data.Part
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,7 @@ class ChatViewModel(private val container: AppContainer) : ViewModel() {
     val conversation = session.conversation
     val busy = session.busy
     val events = session.events
+    val sharedDraft = session.sharedDraft
 
     /** What will answer the next message, e.g. Groq, Gemini or the on-device model. */
     val brain = combine(
@@ -60,6 +62,8 @@ class ChatViewModel(private val container: AppContainer) : ViewModel() {
     fun send(text: String, attachments: List<Part>): Boolean = session.send(text, attachments)
 
     fun stop() = session.stop()
+
+    fun consumeSharedDraft(draft: SharedDraft) = session.consumeSharedDraft(draft)
 
     fun resolveApproval(allow: Boolean) {
         container.approvals.resolve(allow)

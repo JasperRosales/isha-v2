@@ -5,7 +5,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -24,11 +26,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
+import androidx.core.content.IntentCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.jasper.ishav2.agent.SharedDraft
+import dev.jasper.ishav2.data.Part
 import dev.jasper.ishav2.ui.IshaNav
 import dev.jasper.ishav2.ui.splash.IshaSplash
 import dev.jasper.ishav2.ui.theme.IshaTheme
+import dev.jasper.ishav2.util.FileStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -42,14 +51,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val container = (application as IshaApp).container
         handleIntent(intent)
+        // A rotation re-delivers the same intent; only import a share once.
+        if (savedInstanceState == null) handleShare(intent)
 
         applySystemBars(dark = container.settings.current.darkTheme)
+        // Load the last chat while the splash plays, so it's on screen the moment the
+        // app appears instead of a frame or two later. (Idempotent: the chat screen
+        // calls it again.)
+        lifecycleScope.launch(Dispatchers.IO) { container.chat.openInitial() }
         // Cold starts get the animated greeting; rotations and deep links don't.
         val coldStart = savedInstanceState == null &&
             intent?.hasExtra(EXTRA_OPEN_CHAT) != true &&
             intent?.hasExtra(EXTRA_OPEN_INBOX) != true &&
             intent?.hasExtra(EXTRA_OPEN_MODELS) != true &&
-            intent?.hasExtra(EXTRA_OPEN_BUDGET) != true
+            intent?.hasExtra(EXTRA_OPEN_BUDGET) != true &&
+            !isShare(intent)
 
         setContent {
             val settings by container.settings.settings.collectAsStateWithLifecycle()
@@ -112,6 +128,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
+        handleShare(intent)
     }
 
     private fun handleIntent(intent: Intent?) {
@@ -125,6 +142,56 @@ class MainActivity : ComponentActivity() {
             }
             openChat.value = true
         }
+    }
+
+    private fun isShare(intent: Intent?): Boolean =
+        intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE
+
+    /**
+     * Text, links, images and files shared from another app's share sheet. The files are
+     * copied into isha's storage right away, while this activity still holds the read
+     * grant, then land in a fresh chat's composer for the user to add a question.
+     */
+    private fun handleShare(intent: Intent?) {
+        if (!isShare(intent)) return
+        intent!!
+        val text = listOfNotNull(
+            intent.getStringExtra(Intent.EXTRA_SUBJECT),
+            intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+        ).map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")
+        val uris = sharedUris(intent).take(MAX_SHARED_FILES)
+        if (text.isEmpty() && uris.isEmpty()) return
+
+        val chat = (application as IshaApp).container.chat
+        openChat.value = true
+        lifecycleScope.launch {
+            val parts = mutableListOf<Part>()
+            for (uri in uris) {
+                runCatching { FileStore.importUri(this@MainActivity, uri) }
+                    .onSuccess { parts += it }
+                    // A toast, since the chat screen may not be listening for events yet.
+                    .onFailure {
+                        Toast.makeText(
+                            this@MainActivity,
+                            it.message ?: "Could not open what was shared.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+            }
+            if (text.isNotEmpty() || parts.isNotEmpty()) chat.share(SharedDraft(text, parts))
+        }
+    }
+
+    private fun sharedUris(intent: Intent): List<Uri> {
+        val uris = if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+        } else {
+            listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+        }
+        // Some apps only put the files in ClipData.
+        val clip = intent.clipData
+        val fromClip = if (clip == null) emptyList() else (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+        return (uris + fromClip).distinct()
     }
 
     private fun requestNotificationPermission() {
@@ -149,5 +216,6 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_BUDGET = "open_budget"
         const val EXTRA_CONVERSATION_ID = "conversation_id"
         private const val REQUEST_NOTIFICATIONS = 1001
+        private const val MAX_SHARED_FILES = 6
     }
 }
