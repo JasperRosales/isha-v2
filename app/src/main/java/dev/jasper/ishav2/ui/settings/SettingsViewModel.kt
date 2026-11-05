@@ -133,6 +133,14 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         container.settings.setAutoApproveReads(enabled)
     }
 
+    fun setVoiceReadReplies(enabled: Boolean) {
+        container.settings.setVoice(readReplies = enabled)
+    }
+
+    fun setVoiceHandsFree(enabled: Boolean) {
+        container.settings.setVoice(handsFree = enabled)
+    }
+
     fun setBriefing(enabled: Boolean, hour: Int, minute: Int) {
         container.settings.setBriefing(enabled, hour, minute)
         BriefingWorker.schedule(container.appContext, container.settings.current)

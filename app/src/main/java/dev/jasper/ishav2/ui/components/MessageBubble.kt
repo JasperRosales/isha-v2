@@ -31,6 +31,8 @@ import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.StopCircle
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -112,7 +114,13 @@ fun UserMessage(message: ChatMessage, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun AssistantMessage(message: ChatMessage, modifier: Modifier = Modifier) {
+fun AssistantMessage(
+    message: ChatMessage,
+    modifier: Modifier = Modifier,
+    speaking: Boolean = false,
+    /** Read this reply aloud, or stop if it is already being read. Null hides the button. */
+    onSpeak: (() -> Unit)? = null
+) {
     val calls = message.parts.filterIsInstance<Part.ToolCall>()
     val text = message.plainText()
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
@@ -171,13 +179,41 @@ fun AssistantMessage(message: ChatMessage, modifier: Modifier = Modifier) {
                 }
             }
             val brain = message.brain
-            if (brain != null && brain.startsWith("On-device") && message.status != MessageStatus.STREAMING) {
-                Text(
-                    text = "⚡ ${brain.replaceFirst("On-device", "answered on-device")}",
-                    color = IshaMuted,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(start = 4.dp)
-                )
+            val onDevice = brain != null && brain.startsWith("On-device") && message.status != MessageStatus.STREAMING
+            val canSpeak = onSpeak != null && text.isNotBlank() && message.status != MessageStatus.STREAMING
+            if (onDevice || canSpeak) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (canSpeak) {
+                        Row(
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable(onClick = onSpeak!!)
+                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (speaking) Icons.Rounded.StopCircle else Icons.Rounded.VolumeUp,
+                                contentDescription = null,
+                                tint = if (speaking) IshaAccent else IshaMuted,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = if (speaking) "Stop" else "Listen",
+                                color = if (speaking) IshaAccent else IshaMuted,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                    if (onDevice) {
+                        Text(
+                            text = "⚡ ${brain!!.replaceFirst("On-device", "answered on-device")}",
+                            color = IshaMuted,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                }
             }
         }
     }

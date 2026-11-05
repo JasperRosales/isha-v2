@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the launcher icon. Actions are handled in MainActivity.handleIntent. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_talk"
+        android:shortcutId="talk"
+        android:shortcutLongLabel="@string/shortcut_talk_long"
+        android:shortcutShortLabel="@string/shortcut_talk_short">
+        <intent
+            android:action="dev.jasper.ishav2.action.TALK"
+            android:targetClass="dev.jasper.ishav2.MainActivity"
+            android:targetPackage="dev.jasper.ishav2" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new"
+        android:shortcutId="new_chat"
+        android:shortcutLongLabel="@string/shortcut_new_long"
+        android:shortcutShortLabel="@string/shortcut_new_short">
+        <intent
+            android:action="dev.jasper.ishav2.action.NEW_CHAT"
+            android:targetClass="dev.jasper.ishav2.MainActivity"
+            android:targetPackage="dev.jasper.ishav2" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_due"
+        android:shortcutId="due"
+        android:shortcutLongLabel="@string/shortcut_due_long"
+        android:shortcutShortLabel="@string/shortcut_due_short">
+        <intent
+            android:action="dev.jasper.ishav2.action.OPEN_DUE"
+            android:targetClass="dev.jasper.ishav2.MainActivity"
+            android:targetPackage="dev.jasper.ishav2" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_exams"
+        android:shortcutId="exams"
+        android:shortcutLongLabel="@string/shortcut_exams_long"
+        android:shortcutShortLabel="@string/shortcut_exams_short">
+        <intent
+            android:action="dev.jasper.ishav2.action.OPEN_EXAMS"
+            android:targetClass="dev.jasper.ishav2.MainActivity"
+            android:targetPackage="dev.jasper.ishav2" />
+    </shortcut>
+</shortcuts>

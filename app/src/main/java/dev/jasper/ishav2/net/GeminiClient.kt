@@ -95,6 +95,46 @@ class GeminiClient(private val settings: SettingsStore) {
      * How long to skip Gemini after a 429. A spent daily free-tier quota only
      * resets at midnight Pacific; per-minute limits say how long to wait.
      */
+    /**
+     * One non-streaming generateContent call with a raw request body, for background
+     * jobs like writing exam items. Returns the reply text without thoughts.
+     */
+    suspend fun generate(request: kotlinx.serialization.json.JsonObject): String = withContext(Dispatchers.IO) {
+        val key = settings.current.geminiKey
+        if (key.isBlank()) throw ApiException(401, "Add a Gemini API key in Settings.")
+        val model = settings.current.model.ifBlank { "gemini-3.5-flash-lite" }
+        val call = streamClient.newCall(
+            Request.Builder()
+                .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
+                .header("x-goog-api-key", key)
+                .post(Http.body(request))
+                .build()
+        )
+        val job = currentCoroutineContext()[Job]
+        val handle = job?.invokeOnCompletion { runCatching { call.cancel() } }
+        try {
+            call.execute().use { response ->
+                val text = response.body?.string()
+                if (!response.isSuccessful) {
+                    throw ApiException(
+                        response.code,
+                        friendlyGeminiError(response.code, Http.errorMessage(text)),
+                        retryAfterMs = if (response.code == 429) quotaBackoffMs(text) else null
+                    )
+                }
+                val chunk = Http.json.decodeFromString<GeminiChunk>(text.orEmpty())
+                chunk.promptFeedback?.blockReason?.let { throw ApiException(400, "Gemini blocked this material ($it).") }
+                chunk.candidates.firstOrNull()?.content?.parts.orEmpty()
+                    .filter { it.thought != true }
+                    .mapNotNull { it.text }
+                    .joinToString("")
+                    .ifBlank { throw ApiException(500, "Gemini returned an empty reply.") }
+            }
+        } finally {
+            handle?.dispose()
+        }
+    }
+
     private fun quotaBackoffMs(body: String?): Long {
         val text = body.orEmpty()
         val now = System.currentTimeMillis()

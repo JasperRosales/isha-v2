@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Inbox
 import androidx.compose.material.icons.rounded.OfflineBolt
 import androidx.compose.material.icons.rounded.Savings
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.EventNote
 import androidx.compose.material.icons.rounded.MarkEmailUnread
 import androidx.compose.material.icons.rounded.Lock
@@ -95,6 +96,7 @@ fun ChatDrawer(
     onOpenBudget: () -> Unit,
     onOpenDeadlines: () -> Unit,
     onOpenMail: () -> Unit,
+    onOpenExams: () -> Unit,
     brain: Brain,
     onOpenSettings: () -> Unit,
     onClose: () -> Unit
@@ -263,6 +265,17 @@ fun ChatDrawer(
                     subtitle = "Classroom deadlines · works offline",
                     onClick = {
                         onOpenDeadlines()
+                        onClose()
+                    }
+                )
+            }
+            item {
+                DrawerAction(
+                    icon = Icons.Rounded.School,
+                    title = "Exams",
+                    subtitle = "Practice exams from your notes",
+                    onClick = {
+                        onOpenExams()
                         onClose()
                     }
                 )

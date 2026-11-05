@@ -75,6 +75,29 @@ class ChatSession(
         }
     }
 
+    private val _launchRequest = MutableStateFlow<LaunchRequest?>(null)
+
+    /** Opened from the widget, Quick Settings tile or a launcher shortcut: what to do on arrival. */
+    val launchRequest: StateFlow<LaunchRequest?> = _launchRequest.asStateFlow()
+
+    /**
+     * Starts a fresh chat ready for [request]. A reply that is still generating keeps
+     * its chat, so the run isn't cancelled; the chat screen waits for it to finish.
+     */
+    fun launch(request: LaunchRequest) {
+        scope.launch {
+            if (!_busy.value) {
+                opened = true // wins over restoring the last chat
+                startFresh()
+            }
+            _launchRequest.value = request
+        }
+    }
+
+    fun consumeLaunch(request: LaunchRequest) {
+        _launchRequest.compareAndSet(request, null)
+    }
+
     /** Called by the composer once it has taken the draft. */
     fun consumeSharedDraft(draft: SharedDraft) {
         _sharedDraft.compareAndSet(draft, null)
@@ -289,6 +312,15 @@ class ChatSession(
         private const val TAG = "isha-chat"
         private const val PERSIST_DURING_STREAM_MS = 2_000L
     }
+}
+
+/** How isha was opened from outside the app. */
+enum class LaunchRequest {
+    /** Start listening right away (voice mode). */
+    TALK,
+
+    /** Focus the message box with the keyboard up. */
+    TYPE
 }
 
 /** Text and files shared into isha from another app's share sheet. */

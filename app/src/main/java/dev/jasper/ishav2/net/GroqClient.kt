@@ -111,6 +111,52 @@ class GroqClient(private val settings: SettingsStore) {
         finishReason
     }
 
+    /**
+     * One non-streaming completion with no tools, for background jobs like writing
+     * exam items. With [json] the reply is constrained to a JSON object.
+     */
+    suspend fun complete(system: String, user: String, json: Boolean = false, maxTokens: Int = 8192): String =
+        withContext(Dispatchers.IO) {
+            val key = settings.current.groqKey
+            if (key.isBlank()) throw ApiException(401, "Add a Groq API key in Settings.")
+            val body = buildJsonObject {
+                put("model", model)
+                put("temperature", 0.6)
+                put("max_completion_tokens", maxTokens)
+                put("messages", JsonArray(listOf(
+                    buildJsonObject { put("role", "system"); put("content", system) },
+                    buildJsonObject { put("role", "user"); put("content", user) }
+                )))
+                if (json) put("response_format", buildJsonObject { put("type", "json_object") })
+            }
+            val call = streamClient.newCall(
+                Request.Builder()
+                    .url("$BASE/chat/completions")
+                    .header("Authorization", "Bearer $key")
+                    .post(Http.body(body))
+                    .build()
+            )
+            val job = currentCoroutineContext()[Job]
+            val handle = job?.invokeOnCompletion { runCatching { call.cancel() } }
+            try {
+                call.execute().use { response ->
+                    val text = response.body?.string()
+                    if (!response.isSuccessful) {
+                        throw ApiException(
+                            response.code,
+                            friendlyError(response.code, Http.errorMessage(text)),
+                            retryAfterMs = backoffMs(response.code, response.header("retry-after"), text)
+                        )
+                    }
+                    val root = Http.json.parseToJsonElement(text.orEmpty()).jsonObject
+                    val message = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("message") as? JsonObject
+                    message?.str("content") ?: throw ApiException(500, "Groq returned an empty reply.")
+                }
+            } finally {
+                handle?.dispose()
+            }
+        }
+
     suspend fun listModels(): List<String> = withContext(Dispatchers.IO) {
         val key = settings.current.groqKey
         if (key.isBlank()) throw ApiException(401, "Add a Groq API key first.")

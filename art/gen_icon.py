@@ -167,13 +167,7 @@ if __name__ == "__main__":
     open(os.path.join(out_dir, "isha_round.svg"), "w").write(svg(SHAPES, 512, round_clip=True) + "\n")
     if res:
         # The launcher icon now comes from the animated logo: see art/gen_logo_icon.py.
-        # In-app avatar: the round icon cropped to the 72-unit visible circle.
-        avatar = ('    <group android:translateX="-18" android:translateY="-18">\n'
-                  f'        <clip-path android:pathData="{circle(54, 54, 36)}" />\n'
-                  + GRADIENT_BG.replace("\n    ", "\n        ").replace("    <path", "        <path", 1) + "\n"
-                  + "\n".join(vd_path(*s, indent="        ") for s in SHAPES)
-                  + '\n    </group>')
-        open(os.path.join(res, "isha_avatar.xml"), "w").write(vector(avatar, 72, 72, 72, 72, aapt=True))
+        # The in-app avatar (isha_avatar.xml) also comes from art/gen_logo_icon.py.
         # Status-bar icon: the silhouette, scaled from the central 72 units.
         notif = ('    <group android:scaleX="0.3333" android:scaleY="0.3333" android:translateX="-6" android:translateY="-6.5">\n'
                  + vd_mono(mono_shapes(), indent="        ") + '\n    </group>')

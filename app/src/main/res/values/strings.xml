@@ -17,4 +17,19 @@
     <string name="download_channel_desc">Progress while an offline model downloads</string>
     <string name="budget_channel">Budget alerts</string>
     <string name="budget_channel_desc">When a category nears or passes its monthly budget</string>
+    <string name="widget_label">isha</string>
+    <string name="widget_description">Your next deadline, budget left this month, and one tap to talk to isha.</string>
+    <string name="widget_ask">Ask</string>
+    <string name="widget_talk">Talk</string>
+    <string name="widget_due_next">Due next</string>
+    <string name="widget_budget">Budget</string>
+    <string name="tile_talk">Talk to isha</string>
+    <string name="shortcut_talk_short">Talk</string>
+    <string name="shortcut_talk_long">Talk to isha</string>
+    <string name="shortcut_new_short">New chat</string>
+    <string name="shortcut_new_long">New chat with isha</string>
+    <string name="shortcut_due_short">Due</string>
+    <string name="shortcut_due_long">What\'s due</string>
+    <string name="shortcut_exams_short">Exams</string>
+    <string name="shortcut_exams_long">Practice exams</string>
 </resources>

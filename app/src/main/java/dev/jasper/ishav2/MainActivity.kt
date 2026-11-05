@@ -30,6 +30,7 @@ import androidx.core.content.IntentCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.jasper.ishav2.agent.LaunchRequest
 import dev.jasper.ishav2.agent.SharedDraft
 import dev.jasper.ishav2.data.Part
 import dev.jasper.ishav2.ui.IshaNav
@@ -45,6 +46,8 @@ class MainActivity : ComponentActivity() {
     private val openChat = mutableStateOf(false)
     private val openModels = mutableStateOf(false)
     private val openBudget = mutableStateOf(false)
+    private val openDeadlines = mutableStateOf(false)
+    private val openExams = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -52,7 +55,10 @@ class MainActivity : ComponentActivity() {
         val container = (application as IshaApp).container
         handleIntent(intent)
         // A rotation re-delivers the same intent; only import a share once.
-        if (savedInstanceState == null) handleShare(intent)
+        if (savedInstanceState == null) {
+            handleShare(intent)
+            handleAction(intent)
+        }
 
         applySystemBars(dark = container.settings.current.darkTheme)
         // Load the last chat while the splash plays, so it's on screen the moment the
@@ -65,6 +71,7 @@ class MainActivity : ComponentActivity() {
             intent?.hasExtra(EXTRA_OPEN_INBOX) != true &&
             intent?.hasExtra(EXTRA_OPEN_MODELS) != true &&
             intent?.hasExtra(EXTRA_OPEN_BUDGET) != true &&
+            intent?.action !in LAUNCH_ACTIONS &&
             !isShare(intent)
 
         setContent {
@@ -91,7 +98,11 @@ class MainActivity : ComponentActivity() {
                         openModels = openModels.value,
                         onModelsOpened = { openModels.value = false },
                         openBudget = openBudget.value,
-                        onBudgetOpened = { openBudget.value = false }
+                        onBudgetOpened = { openBudget.value = false },
+                        openDeadlines = openDeadlines.value,
+                        onDeadlinesOpened = { openDeadlines.value = false },
+                        openExams = openExams.value,
+                        onExamsOpened = { openExams.value = false }
                     )
                     AnimatedVisibility(
                         visible = showSplash,
@@ -129,6 +140,25 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         handleIntent(intent)
         handleShare(intent)
+        handleAction(intent)
+    }
+
+    /** Widget buttons, the Quick Settings tile and launcher shortcuts. */
+    private fun handleAction(intent: Intent?) {
+        val chat = (application as IshaApp).container.chat
+        when (intent?.action) {
+            ACTION_TALK -> {
+                chat.launch(LaunchRequest.TALK)
+                openChat.value = true
+            }
+            ACTION_NEW_CHAT -> {
+                chat.launch(LaunchRequest.TYPE)
+                openChat.value = true
+            }
+            ACTION_OPEN_DUE -> openDeadlines.value = true
+            ACTION_OPEN_EXAMS -> openExams.value = true
+            ACTION_OPEN_BUDGET -> openBudget.value = true
+        }
     }
 
     private fun handleIntent(intent: Intent?) {
@@ -215,6 +245,18 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_MODELS = "open_models"
         const val EXTRA_OPEN_BUDGET = "open_budget"
         const val EXTRA_CONVERSATION_ID = "conversation_id"
+        const val ACTION_TALK = "dev.jasper.ishav2.action.TALK"
+        const val ACTION_NEW_CHAT = "dev.jasper.ishav2.action.NEW_CHAT"
+        const val ACTION_OPEN_DUE = "dev.jasper.ishav2.action.OPEN_DUE"
+        const val ACTION_OPEN_BUDGET = "dev.jasper.ishav2.action.OPEN_BUDGET"
+        const val ACTION_OPEN_EXAMS = "dev.jasper.ishav2.action.OPEN_EXAMS"
+        private val LAUNCH_ACTIONS = setOf(ACTION_TALK, ACTION_NEW_CHAT, ACTION_OPEN_DUE, ACTION_OPEN_BUDGET, ACTION_OPEN_EXAMS)
+
+        /** Opens isha for [action] (one of the ACTION_ constants), or normally when null. */
+        fun actionIntent(context: android.content.Context, action: String?): Intent =
+            Intent(context, MainActivity::class.java)
+                .setAction(action ?: Intent.ACTION_MAIN)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         private const val REQUEST_NOTIFICATIONS = 1001
         private const val MAX_SHARED_FILES = 6
     }

@@ -637,6 +637,31 @@ fun SettingsScreen(
                 }
             }
 
+            item { SectionLabel("Voice") }
+            item {
+                SettingsCard(
+                    title = "Voice mode",
+                    subtitle = "Tap the mic in the message box to talk to isha. Speech is turned into text by your phone's speech service."
+                ) {
+                    VoiceToggle(
+                        title = "Read replies aloud",
+                        description = "When you speak a message, isha speaks the answer back.",
+                        checked = settings.voiceReadReplies,
+                        onCheckedChange = vm::setVoiceReadReplies
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    VoiceToggle(
+                        title = "Hands-free conversation",
+                        description = if (settings.voiceReadReplies)
+                            "After a spoken answer, isha listens again. Stay quiet to end the conversation."
+                        else "Needs “Read replies aloud”.",
+                        checked = settings.voiceHandsFree && settings.voiceReadReplies,
+                        enabled = settings.voiceReadReplies,
+                        onCheckedChange = vm::setVoiceHandsFree
+                    )
+                }
+            }
+
             item { SectionLabel("Behaviour") }
             item {
                 SettingsCard(
@@ -930,6 +955,41 @@ private fun SettingsCard(
             Spacer(Modifier.height(5.dp))
             content()
         }
+    }
+}
+
+@Composable
+private fun VoiceToggle(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = if (enabled) IshaInk else IshaMuted,
+                style = MaterialTheme.typography.labelLarge
+            )
+            Text(
+                text = description,
+                color = IshaMuted,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = IshaOnAccent,
+                checkedTrackColor = IshaAccent,
+                uncheckedThumbColor = IshaMuted,
+                uncheckedTrackColor = IshaCreamDeep
+            )
+        )
     }
 }
 

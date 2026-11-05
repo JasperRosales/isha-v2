@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Stop
@@ -53,6 +56,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -75,6 +81,7 @@ import dev.jasper.ishav2.ui.theme.IshaInk
 import dev.jasper.ishav2.ui.theme.IshaMuted
 import dev.jasper.ishav2.ui.theme.IshaOnAccent
 import dev.jasper.ishav2.ui.theme.IshaSurfaceHi
+import dev.jasper.ishav2.ui.voice.VoiceController
 import dev.jasper.ishav2.util.FileStore
 import dev.jasper.ishav2.util.humanSize
 import kotlinx.coroutines.launch
@@ -88,7 +95,10 @@ fun Composer(
     onError: (String) -> Unit,
     modifier: Modifier = Modifier,
     draft: SharedDraft? = null,
-    onDraftTaken: (SharedDraft) -> Unit = {}
+    onDraftTaken: (SharedDraft) -> Unit = {},
+    voice: VoiceController? = null,
+    onMic: () -> Unit = {},
+    focusRequester: FocusRequester? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -99,6 +109,12 @@ fun Composer(
     var taskFormOpen by rememberSaveable { mutableStateOf(false) }
     var emailFormOpen by rememberSaveable { mutableStateOf(false) }
     var pendingCamera by remember { mutableStateOf<File?>(null) }
+    val listening = voice?.phase == VoiceController.Phase.LISTENING
+
+    // Typing takes over from voice: stop reading a reply aloud.
+    LaunchedEffect(text.isNotBlank()) {
+        if (text.isNotBlank()) voice?.stopSpeaking()
+    }
 
     // Something shared from another app: put it in the box so the user can add
     // what they want isha to do with it before sending.
@@ -192,7 +208,13 @@ fun Composer(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box {
+            if (listening) {
+                NeuIconButton(
+                    icon = Icons.Rounded.Close,
+                    contentDescription = "Cancel voice message",
+                    onClick = { voice?.cancelListening() }
+                )
+            } else Box {
                 NeuIconButton(
                     icon = Icons.Rounded.Add,
                     contentDescription = "Attach",
@@ -274,7 +296,13 @@ fun Composer(
                 }
             }
 
-            NeuInset(
+            if (listening && voice != null) {
+                ListeningField(
+                    heard = voice.partial,
+                    level = voice.level,
+                    modifier = Modifier.weight(1f)
+                )
+            } else NeuInset(
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 46.dp),
@@ -298,7 +326,8 @@ fun Composer(
                     keyboardActions = KeyboardActions(onSend = { send() }),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 120.dp),
+                        .heightIn(max = 120.dp)
+                        .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
                     decorationBox = { inner ->
                         Box {
                             if (text.isBlank()) {
@@ -314,12 +343,24 @@ fun Composer(
                 )
             }
 
-            if (busy) {
+            if (listening) {
+                AccentRoundButton(
+                    icon = Icons.Rounded.Send,
+                    contentDescription = "Send voice message",
+                    onClick = { voice?.finishListening() }
+                )
+            } else if (busy) {
                 NeuIconButton(
                     icon = Icons.Rounded.Stop,
                     contentDescription = "Stop",
                     onClick = onStop,
                     tint = IshaDanger
+                )
+            } else if (voice != null && voice.canListen && text.isBlank() && attachments.isEmpty() && !importing) {
+                AccentRoundButton(
+                    icon = Icons.Rounded.Mic,
+                    contentDescription = "Talk to isha",
+                    onClick = onMic
                 )
             } else {
                 val enabled = canSend()
@@ -366,6 +407,72 @@ fun Composer(
                 emailFormOpen = false
             }
         )
+    }
+}
+
+@Composable
+private fun AccentRoundButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    NeuSurface(
+        modifier = Modifier.size(46.dp),
+        shape = CircleShape,
+        color = IshaAccent,
+        onClick = onClick,
+        contentPadding = PaddingValues(0.dp)
+    ) {
+        Box(Modifier.fillMaxWidth().height(46.dp), contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = IshaOnAccent,
+                modifier = Modifier.size(21.dp)
+            )
+        }
+    }
+}
+
+/** Stands in for the text box while isha is listening: a live mic dot and what was heard. */
+@Composable
+private fun ListeningField(heard: String, level: Float, modifier: Modifier = Modifier) {
+    val pulse by animateFloatAsState(
+        targetValue = 1f + level * 0.9f,
+        animationSpec = spring(stiffness = 600f),
+        label = "mic level"
+    )
+    NeuInset(
+        modifier = modifier.heightIn(min = 46.dp),
+        shape = RoundedCornerShape(22.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 11.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .size(12.dp)
+                        .scale(pulse)
+                        .clip(CircleShape)
+                        .background(IshaAccent.copy(alpha = 0.25f))
+                )
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(IshaAccent)
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = heard.ifBlank { "Listening…" },
+                color = if (heard.isBlank()) IshaMuted else IshaInk,
+                fontSize = 16.sp,
+                lineHeight = 22.sp,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 

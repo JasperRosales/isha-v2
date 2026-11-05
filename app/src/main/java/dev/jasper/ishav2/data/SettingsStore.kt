@@ -44,7 +44,11 @@ data class AppSettings(
     val briefingEnabled: Boolean = false,
     val briefingHour: Int = 7,
     val briefingMinute: Int = 30,
-    val hideTransactions: Boolean = false
+    val hideTransactions: Boolean = false,
+    /** Speak isha's reply aloud when the message was spoken with the mic. */
+    val voiceReadReplies: Boolean = true,
+    /** After a spoken reply, listen again so the conversation can continue hands-free. */
+    val voiceHandsFree: Boolean = true
 ) {
     val hasGeminiKey: Boolean get() = geminiKey.isNotBlank()
     val hasGroqKey: Boolean get() = groqKey.isNotBlank()
@@ -207,6 +211,14 @@ class SettingsStore(context: Context) {
         _settings.value = current.copy(autoApproveReads = enabled)
     }
 
+    fun setVoice(readReplies: Boolean = current.voiceReadReplies, handsFree: Boolean = current.voiceHandsFree) {
+        prefs.edit()
+            .putBoolean(KEY_VOICE_READ, readReplies)
+            .putBoolean(KEY_VOICE_HANDS_FREE, handsFree)
+            .apply()
+        _settings.value = current.copy(voiceReadReplies = readReplies, voiceHandsFree = handsFree)
+    }
+
     fun setBriefing(enabled: Boolean, hour: Int = current.briefingHour, minute: Int = current.briefingMinute) {
         prefs.edit()
             .putBoolean(KEY_BRIEFING, enabled)
@@ -272,7 +284,9 @@ class SettingsStore(context: Context) {
             briefingEnabled = prefs.getBoolean(KEY_BRIEFING, false),
             briefingHour = prefs.getInt(KEY_BRIEFING_HOUR, 7),
             briefingMinute = prefs.getInt(KEY_BRIEFING_MINUTE, 30),
-            hideTransactions = prefs.getBoolean(KEY_HIDE_TX, false)
+            hideTransactions = prefs.getBoolean(KEY_HIDE_TX, false),
+            voiceReadReplies = prefs.getBoolean(KEY_VOICE_READ, true),
+            voiceHandsFree = prefs.getBoolean(KEY_VOICE_HANDS_FREE, true)
         )
     }
 
@@ -307,5 +321,7 @@ class SettingsStore(context: Context) {
         const val KEY_BRIEFING_HOUR = "briefing_hour"
         const val KEY_BRIEFING_MINUTE = "briefing_minute"
         const val KEY_HIDE_TX = "budget_hide_transactions"
+        const val KEY_VOICE_READ = "voice_read_replies"
+        const val KEY_VOICE_HANDS_FREE = "voice_hands_free"
     }
 }

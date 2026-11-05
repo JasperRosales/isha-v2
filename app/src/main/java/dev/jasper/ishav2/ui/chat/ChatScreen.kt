@@ -71,7 +71,23 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.jasper.ishav2.ui.voice.VoiceController
+import dev.jasper.ishav2.agent.LaunchRequest
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import kotlinx.coroutines.delay
+import dev.jasper.ishav2.ui.voice.speakableText
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -115,7 +131,8 @@ fun ChatScreen(
     onOpenModels: () -> Unit,
     onOpenBudget: () -> Unit,
     onOpenDeadlines: () -> Unit,
-    onOpenMail: () -> Unit
+    onOpenMail: () -> Unit,
+    onOpenExams: () -> Unit
 ) {
     // Plain collectAsState (not lifecycle-gated): the chat must keep painting
     // tokens while it is on screen, and this screen only exists while visible.
@@ -183,6 +200,83 @@ fun ChatScreen(
         derivedStateOf { !follow && listState.canScrollForward }
     }
 
+    // Voice mode: speak a message with the mic, hear the answer, keep talking.
+    val context = LocalContext.current
+    val voice = remember { VoiceController(context.applicationContext) }
+    // True while the reply being generated answers a spoken message.
+    var voiceTurn by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        // Never keep the mic open or keep talking once isha is off screen.
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                voice.stopAll()
+                voiceTurn = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            voice.release()
+        }
+    }
+    LaunchedEffect(chatId) { voice.stopAll() }
+
+    fun startListening() {
+        voice.listen(
+            onResult = { heard ->
+                if (vm.send(heard, emptyList())) {
+                    voiceTurn = true
+                    jumpToBottom.value = true
+                }
+            },
+            onError = { message -> message?.let(vm::report) }
+        )
+    }
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startListening() else vm.report("Allow microphone access to talk to isha.")
+    }
+    fun onMic() {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) startListening() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    // Opened from the widget, the Quick Settings tile or a launcher shortcut.
+    // Declared after the chat-switch effect above, so a fresh chat can't cancel the mic.
+    val launchRequest by vm.launchRequest.collectAsState()
+    val composerFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(launchRequest, busy) {
+        val request = launchRequest ?: return@LaunchedEffect
+        if (busy) return@LaunchedEffect // let the current reply finish first
+        vm.consumeLaunch(request)
+        when (request) {
+            LaunchRequest.TALK -> onMic()
+            LaunchRequest.TYPE -> {
+                delay(150) // let the composer attach after navigation
+                runCatching { composerFocus.requestFocus() }
+                keyboard?.show()
+            }
+        }
+    }
+
+    // When the answer to a spoken message is done, read it aloud and, in
+    // hands-free mode, listen for the next one.
+    LaunchedEffect(busy) {
+        if (busy || !voiceTurn) return@LaunchedEffect
+        voiceTurn = false
+        if (!vm.settings.value.voiceReadReplies) return@LaunchedEffect
+        val reply = vm.conversation.value?.messages?.lastOrNull { it.role != Role.TOOL }
+            ?.takeIf { it.role == Role.MODEL && it.status == MessageStatus.DONE }
+            ?: return@LaunchedEffect
+        voice.speak(reply.id, speakableText(reply.plainText()), onError = vm::report) {
+            if (vm.settings.value.voiceHandsFree && !vm.busy.value) startListening()
+        }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawer,
         scrimColor = IshaScrim,
@@ -204,6 +298,7 @@ fun ChatScreen(
                 onOpenBudget = onOpenBudget,
                 onOpenDeadlines = onOpenDeadlines,
                 onOpenMail = onOpenMail,
+                onOpenExams = onOpenExams,
                 brain = brain,
                 onOpenSettings = onOpenSettings,
                 onClose = { scope.launch { drawer.close() } }
@@ -255,7 +350,19 @@ fun ChatScreen(
                                 )
                                 when (message.role) {
                                     Role.USER -> UserMessage(message, itemModifier)
-                                    else -> AssistantMessage(message, itemModifier)
+                                    else -> AssistantMessage(
+                                        message = message,
+                                        modifier = itemModifier,
+                                        speaking = voice.speakingId == message.id,
+                                        onSpeak = {
+                                            if (voice.speakingId == message.id) voice.stopSpeaking()
+                                            else voice.speak(
+                                                message.id,
+                                                speakableText(message.plainText()),
+                                                onError = vm::report
+                                            )
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -291,7 +398,10 @@ fun ChatScreen(
                     onStop = vm::stop,
                     onError = vm::report,
                     draft = sharedDraft,
-                    onDraftTaken = vm::consumeSharedDraft
+                    onDraftTaken = vm::consumeSharedDraft,
+                    voice = voice,
+                    onMic = { onMic() },
+                    focusRequester = composerFocus
                 )
             }
         }

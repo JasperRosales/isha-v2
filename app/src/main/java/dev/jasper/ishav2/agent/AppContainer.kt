@@ -36,7 +36,15 @@ import dev.jasper.ishav2.worker.MailClassroomWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import dev.jasper.ishav2.widget.IshaWidget
+import dev.jasper.ishav2.data.ExamStore
+import dev.jasper.ishav2.exam.ExamGenerator
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -59,6 +67,9 @@ class AppContainer(context: Context) {
     val approvals = ApprovalBroker()
     val gemini = GeminiClient(settings)
     val groq = GroqClient(settings)
+    /** Practice exams written from the student's own notes. */
+    val exams = ExamStore(File(appContext.filesDir, "exams.json"))
+    val examGenerator = ExamGenerator(settings, groq, gemini)
     val composioRest = ComposioRest(settings)
     val composioMcp = ComposioMcp(settings)
     val composio = ComposioManager(settings, composioRest, composioMcp)
@@ -103,6 +114,14 @@ class AppContainer(context: Context) {
         }
         if (settings.current.hasComposioKey) {
             scope.launch { runCatching { composio.ensure() } }
+        }
+        // The home-screen widget mirrors deadlines, budget and the theme.
+        scope.launch {
+            combine(deadlines.data, budget.data, settings.settings.map { it.darkTheme }.distinctUntilChanged()) { _, _, _ -> }
+                .collectLatest {
+                    delay(300) // coalesce bursts, e.g. a Classroom sync
+                    runCatching { IshaWidget.update(appContext) }
+                }
         }
         // Pin the process while the assistant is generating, so replies finish
         // even when the app is backgrounded (see ChatService).

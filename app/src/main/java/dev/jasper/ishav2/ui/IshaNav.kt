@@ -27,6 +27,8 @@ import dev.jasper.ishav2.ui.deadlines.DeadlinesScreen
 import dev.jasper.ishav2.ui.deadlines.DeadlinesViewModel
 import dev.jasper.ishav2.ui.inbox.InboxScreen
 import dev.jasper.ishav2.ui.mail.MailDigestScreen
+import dev.jasper.ishav2.ui.exam.ExamViewModel
+import dev.jasper.ishav2.ui.exam.ExamsScreen
 import dev.jasper.ishav2.ui.mail.MailDigestViewModel
 import dev.jasper.ishav2.ui.inbox.InboxViewModel
 import dev.jasper.ishav2.ui.models.ModelsScreen
@@ -44,6 +46,7 @@ private const val ROUTE_MODELS = "models"
 private const val ROUTE_BUDGET = "budget"
 private const val ROUTE_DEADLINES = "deadlines"
 private const val ROUTE_MAIL = "mail"
+private const val ROUTE_EXAMS = "exams"
 
 /** True once the current screen has finished its enter transition. */
 private val NavHostController.settled: Boolean
@@ -75,7 +78,11 @@ fun IshaNav(
     openModels: Boolean = false,
     onModelsOpened: () -> Unit = {},
     openBudget: Boolean = false,
-    onBudgetOpened: () -> Unit = {}
+    onBudgetOpened: () -> Unit = {},
+    openDeadlines: Boolean = false,
+    onDeadlinesOpened: () -> Unit = {},
+    openExams: Boolean = false,
+    onExamsOpened: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val startRoute = remember {
@@ -112,6 +119,24 @@ fun IshaNav(
         if (openBudget) {
             navController.navigate(ROUTE_BUDGET) { launchSingleTop = true }
             onBudgetOpened()
+        }
+    }
+
+    LaunchedEffect(openDeadlines) {
+        if (openDeadlines) {
+            if (startRoute != ROUTE_ONBOARDING) {
+                navController.navigate(ROUTE_DEADLINES) { launchSingleTop = true }
+            }
+            onDeadlinesOpened()
+        }
+    }
+
+    LaunchedEffect(openExams) {
+        if (openExams) {
+            if (startRoute != ROUTE_ONBOARDING) {
+                navController.navigate(ROUTE_EXAMS) { launchSingleTop = true }
+            }
+            onExamsOpened()
         }
     }
 
@@ -152,7 +177,8 @@ fun IshaNav(
                 onOpenModels = { navController.go(ROUTE_MODELS) },
                 onOpenBudget = { navController.go(ROUTE_BUDGET) },
                 onOpenDeadlines = { navController.go(ROUTE_DEADLINES) },
-                onOpenMail = { navController.go(ROUTE_MAIL) }
+                onOpenMail = { navController.go(ROUTE_MAIL) },
+                onOpenExams = { navController.go(ROUTE_EXAMS) }
             )
         }
 
@@ -168,6 +194,11 @@ fun IshaNav(
                     }
                 }
             )
+        }
+
+        composable(ROUTE_EXAMS) {
+            val vm: ExamViewModel = viewModel(factory = ExamViewModel.factory(container))
+            ExamsScreen(vm = vm, onBack = { navController.back() })
         }
 
         composable(ROUTE_MAIL) {
