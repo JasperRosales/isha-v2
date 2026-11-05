@@ -18,47 +18,83 @@ import kotlinx.serialization.json.put
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
-/** A finished tool call from Groq. */
+/** A finished tool call from an OpenAI-compatible brain. */
 data class GroqToolCall(val id: String, val name: String, val argsJson: String)
 
+/** Groq, on its OpenAI-compatible API. */
+class GroqClient(settings: SettingsStore) : ChatCompletionsClient(
+    label = { "Groq" },
+    baseUrl = { "https://api.groq.com/openai/v1" },
+    apiKey = { settings.current.groqKey },
+    modelName = { settings.current.groqModel.ifBlank { AppSettings.DEFAULT_GROQ_MODEL } },
+    tokensField = { "max_completion_tokens" }
+)
+
+/** The user's extra brain: Cerebras, OpenRouter or any OpenAI-compatible endpoint. */
+class ExtraClient(settings: SettingsStore) : ChatCompletionsClient(
+    label = { settings.current.extraProvider.label },
+    baseUrl = { settings.current.extraUrl },
+    apiKey = { settings.current.extraKey },
+    modelName = { settings.current.extraModel },
+    tokensField = { settings.current.extraProvider.tokensField }
+)
+
 /**
- * Streaming client for Groq's OpenAI-compatible Chat Completions API. Groq is
- * isha's main brain; Gemini takes over when Groq's free limits run out.
- * Message/tool JSON is built by [dev.jasper.ishav2.agent.AgentRunner].
+ * Streaming client for an OpenAI-compatible Chat Completions API (Groq,
+ * Cerebras, OpenRouter, …). Message/tool JSON is built by
+ * [dev.jasper.ishav2.agent.AgentRunner].
  */
-class GroqClient(private val settings: SettingsStore) {
+open class ChatCompletionsClient(
+    private val label: () -> String,
+    private val baseUrl: () -> String,
+    private val apiKey: () -> String,
+    private val modelName: () -> String,
+    private val tokensField: () -> String
+) {
     private val streamClient = Http.client.newBuilder()
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
-    val model: String get() = settings.current.groqModel.ifBlank { AppSettings.DEFAULT_GROQ_MODEL }
+    val model: String get() = modelName()
+    val name: String get() = label()
+    private val base: String get() = baseUrl().trim().trimEnd('/')
+
+    private fun requireKey(setup: Boolean = false): String {
+        val key = apiKey()
+        if (key.isBlank()) {
+            throw ApiException(401, if (setup) "Add a $name API key first." else "Add a $name API key in Settings.")
+        }
+        if (base.isBlank()) throw ApiException(400, "Set the $name base URL in Settings.")
+        return key
+    }
 
     /** Streams one assistant turn. Returns the finish_reason. */
     suspend fun stream(
         messages: JsonArray,
         tools: JsonArray?,
         onText: (String) -> Unit,
-        onToolCall: (GroqToolCall) -> Unit
+        onToolCall: (GroqToolCall) -> Unit,
+        /** Called for every streamed event, so callers can tell the reply has started. */
+        onEvent: () -> Unit = {}
     ): String? = withContext(Dispatchers.IO) {
-        val key = settings.current.groqKey
-        if (key.isBlank()) throw ApiException(401, "Add a Groq API key in Settings.")
+        val key = requireKey()
         val body = buildJsonObject {
             put("model", model)
             put("stream", true)
             put("temperature", 0.7)
-            put("max_completion_tokens", 8192)
+            put(tokensField(), 8192)
             put("messages", messages)
             if (tools != null && tools.isNotEmpty()) put("tools", tools)
         }
         val call = streamClient.newCall(
             Request.Builder()
-                .url("$BASE/chat/completions")
+                .url("$base/chat/completions")
                 .header("Authorization", "Bearer $key")
                 .post(Http.body(body))
                 .build()
         )
         val job = currentCoroutineContext()[Job]
-        val handle = job?.invokeOnCompletion { runCatching { call.cancel() } }
+        val handle = call.cancelWith(job)
 
         // Tool calls arrive by index; name/arguments may be split across chunks.
         val open = sortedMapOf<Int, Triple<StringBuilder, StringBuilder, StringBuilder>>()
@@ -74,17 +110,20 @@ class GroqClient(private val settings: SettingsStore) {
                     )
                 }
                 val source = response.body?.source()
-                    ?: throw ApiException(response.code, "Groq returned an empty response.")
+                    ?: throw ApiException(response.code, "$name returned an empty response.")
                 while (!source.exhausted()) {
                     val line = source.readUtf8Line() ?: break
                     if (!line.startsWith("data:")) continue
                     val data = line.removePrefix("data:").trim()
                     if (data.isBlank() || data == "[DONE]") continue
                     val event = runCatching { Http.json.parseToJsonElement(data).jsonObject }.getOrNull() ?: continue
+                    onEvent()
                     (event["error"] as? JsonObject)?.let { error ->
                         val message = error.str("message") ?: "unknown"
-                        val code = if (error.str("code") == "rate_limit_exceeded") 429 else 500
-                        throw ApiException(code, "Groq error: $message", retryAfterMs = if (code == 429) 60_000 else null)
+                        val limited = error.str("code") == "rate_limit_exceeded" ||
+                            (error["code"] as? JsonPrimitive)?.intOrNull == 429
+                        val code = if (limited) 429 else 500
+                        throw ApiException(code, "$name error: $message", retryAfterMs = if (limited) 60_000 else null)
                     }
                     val choice = runCatching { event["choices"]?.jsonArray?.firstOrNull()?.jsonObject }.getOrNull() ?: continue
                     choice.str("finish_reason")?.let { finishReason = it }
@@ -117,12 +156,11 @@ class GroqClient(private val settings: SettingsStore) {
      */
     suspend fun complete(system: String, user: String, json: Boolean = false, maxTokens: Int = 8192): String =
         withContext(Dispatchers.IO) {
-            val key = settings.current.groqKey
-            if (key.isBlank()) throw ApiException(401, "Add a Groq API key in Settings.")
+            val key = requireKey()
             val body = buildJsonObject {
                 put("model", model)
                 put("temperature", 0.6)
-                put("max_completion_tokens", maxTokens)
+                put(tokensField(), maxTokens)
                 put("messages", JsonArray(listOf(
                     buildJsonObject { put("role", "system"); put("content", system) },
                     buildJsonObject { put("role", "user"); put("content", user) }
@@ -131,13 +169,13 @@ class GroqClient(private val settings: SettingsStore) {
             }
             val call = streamClient.newCall(
                 Request.Builder()
-                    .url("$BASE/chat/completions")
+                    .url("$base/chat/completions")
                     .header("Authorization", "Bearer $key")
                     .post(Http.body(body))
                     .build()
             )
             val job = currentCoroutineContext()[Job]
-            val handle = job?.invokeOnCompletion { runCatching { call.cancel() } }
+            val handle = call.cancelWith(job)
             try {
                 call.execute().use { response ->
                     val text = response.body?.string()
@@ -150,7 +188,7 @@ class GroqClient(private val settings: SettingsStore) {
                     }
                     val root = Http.json.parseToJsonElement(text.orEmpty()).jsonObject
                     val message = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("message") as? JsonObject
-                    message?.str("content") ?: throw ApiException(500, "Groq returned an empty reply.")
+                    message?.str("content") ?: throw ApiException(500, "$name returned an empty reply.")
                 }
             } finally {
                 handle?.dispose()
@@ -158,11 +196,10 @@ class GroqClient(private val settings: SettingsStore) {
         }
 
     suspend fun listModels(): List<String> = withContext(Dispatchers.IO) {
-        val key = settings.current.groqKey
-        if (key.isBlank()) throw ApiException(401, "Add a Groq API key first.")
+        val key = requireKey(setup = true)
         val call = Http.client.newCall(
             Request.Builder()
-                .url("$BASE/models")
+                .url("$base/models")
                 .header("Authorization", "Bearer $key")
                 .get()
                 .build()
@@ -181,8 +218,8 @@ class GroqClient(private val settings: SettingsStore) {
     }
 
     /**
-     * How long to skip Groq after a limit error. Groq sends retry-after in
-     * seconds; a spent daily token limit says "per day" and gets a long pause.
+     * How long to skip this brain after a limit error. Most send retry-after
+     * in seconds; a spent daily token limit says "per day" and gets a long pause.
      */
     private fun backoffMs(code: Int, retryAfter: String?, body: String?): Long? {
         if (code != 429 && code != 413) return null
@@ -204,18 +241,17 @@ class GroqClient(private val settings: SettingsStore) {
     }
 
     private fun friendlyError(code: Int, detail: String): String = when (code) {
-        401, 403 -> "Groq rejected the API key. Check it in Settings."
-        404 -> "The Groq model \"$model\" is not available for this key. Pick another in Settings."
-        413 -> "This chat is too large for Groq's free limit right now.\n\n$detail"
-        429 -> "Groq's free limit is full right now. Wait a minute and try again.\n\n$detail"
-        else -> "Groq error ($code): $detail"
+        401, 403 -> "$name rejected the API key. Check it in Settings."
+        404 -> "The $name model \"$model\" is not available for this key. Pick another in Settings."
+        413 -> "This chat is too large for $name's free limit right now.\n\n$detail"
+        429 -> "$name's free limit is full right now. Wait a minute and try again.\n\n$detail"
+        else -> "$name error ($code): $detail"
     }
 
     private fun JsonObject.str(name: String): String? =
         (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
     private companion object {
-        const val BASE = "https://api.groq.com/openai/v1"
-        val NON_CHAT = listOf("whisper", "orpheus", "prompt-guard", "safeguard", "tts", "playai")
+        val NON_CHAT = listOf("whisper", "orpheus", "prompt-guard", "safeguard", "tts", "playai", "embed", "rerank")
     }
 }

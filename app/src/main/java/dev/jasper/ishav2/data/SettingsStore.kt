@@ -17,6 +17,24 @@ enum class ComposioKeyMode { NONE, CONNECT, PROJECT, UNKNOWN }
  */
 enum class BrainMode { AUTO, ONLINE, OFFLINE }
 
+/** The cloud brains, tried in the order the user sets in Settings. */
+enum class CloudBrain { GROQ, GEMINI, EXTRA }
+
+/** Presets for the extra brain: any OpenAI-compatible Chat Completions API. */
+enum class ExtraProvider(
+    val label: String,
+    val baseUrl: String,
+    val keyUrl: String,
+    val keyHint: String,
+    val defaultModel: String,
+    /** Groq/Cerebras accept max_completion_tokens; most others only max_tokens. */
+    val tokensField: String
+) {
+    CEREBRAS("Cerebras", "https://api.cerebras.ai/v1", "https://cloud.cerebras.ai/", "csk-…", "gpt-oss-120b", "max_completion_tokens"),
+    OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1", "https://openrouter.ai/settings/keys", "sk-or-…", "openai/gpt-oss-120b:free", "max_tokens"),
+    CUSTOM("Custom", "", "", "API key", "", "max_tokens")
+}
+
 data class AppSettings(
     val geminiKey: String = "",
     val composioKey: String = "",
@@ -48,13 +66,41 @@ data class AppSettings(
     /** Speak isha's reply aloud when the message was spoken with the mic. */
     val voiceReadReplies: Boolean = true,
     /** After a spoken reply, listen again so the conversation can continue hands-free. */
-    val voiceHandsFree: Boolean = true
+    val voiceHandsFree: Boolean = true,
+    /** Cloud brains in the order they are tried. Always holds every [CloudBrain] once. */
+    val brainOrder: List<CloudBrain> = DEFAULT_BRAIN_ORDER,
+    /** Third brain on an OpenAI-compatible API (Cerebras, OpenRouter, …). */
+    val extraProvider: ExtraProvider = ExtraProvider.CEREBRAS,
+    val extraKey: String = "",
+    val extraModel: String = ExtraProvider.CEREBRAS.defaultModel,
+    /** Only used with [ExtraProvider.CUSTOM]. */
+    val extraBaseUrl: String = "",
+    /**
+     * Switch to the next brain when a reply hasn't started after this many
+     * seconds (Gemini sometimes stalls). 0 turns it off.
+     */
+    val slowSwitchSeconds: Int = DEFAULT_SLOW_SWITCH_SECONDS
 ) {
     val hasGeminiKey: Boolean get() = geminiKey.isNotBlank()
     val hasGroqKey: Boolean get() = groqKey.isNotBlank()
+    val extraUrl: String
+        get() = (if (extraProvider == ExtraProvider.CUSTOM) extraBaseUrl else extraProvider.baseUrl).trim().trimEnd('/')
+    val hasExtraKey: Boolean get() = extraKey.isNotBlank() && extraUrl.isNotBlank() && extraModel.isNotBlank()
 
-    /** Any cloud brain is configured (Groq first, Gemini as backup). */
-    val hasCloudKey: Boolean get() = hasGroqKey || hasGeminiKey
+    fun hasKey(brain: CloudBrain): Boolean = when (brain) {
+        CloudBrain.GROQ -> hasGroqKey
+        CloudBrain.GEMINI -> hasGeminiKey
+        CloudBrain.EXTRA -> hasExtraKey
+    }
+
+    fun brainLabel(brain: CloudBrain): String = when (brain) {
+        CloudBrain.GROQ -> "Groq"
+        CloudBrain.GEMINI -> "Gemini"
+        CloudBrain.EXTRA -> extraProvider.label
+    }
+
+    /** Any cloud brain is configured. */
+    val hasCloudKey: Boolean get() = CloudBrain.entries.any { hasKey(it) }
     val hasLocalModel: Boolean get() = !localModelId.isNullOrBlank()
 
     /** True when the app can answer at all: a cloud key or an on-device model. */
@@ -72,6 +118,13 @@ data class AppSettings(
     companion object {
         const val DEFAULT_MODEL = "gemini-3.5-flash-lite"
         const val DEFAULT_MAX_STEPS = 20
+        const val DEFAULT_SLOW_SWITCH_SECONDS = 30
+        val SLOW_SWITCH_CHOICES = listOf(0, 15, 30, 60)
+        val DEFAULT_BRAIN_ORDER = listOf(CloudBrain.GROQ, CloudBrain.GEMINI, CloudBrain.EXTRA)
+
+        /** Keeps the saved order valid: known entries once each, missing ones appended. */
+        fun normalizeOrder(order: List<CloudBrain>): List<CloudBrain> =
+            (order + DEFAULT_BRAIN_ORDER).distinct()
         /** Batches several tool calls per turn: fewer requests against Groq's 8k tokens/min free limit. */
         const val DEFAULT_GROQ_MODEL = "qwen/qwen3.8-27b"
         val GROQ_MODEL_SUGGESTIONS = listOf(
@@ -115,6 +168,45 @@ class SettingsStore(context: Context) {
         val model = value.trim().ifBlank { AppSettings.DEFAULT_GROQ_MODEL }
         prefs.edit().putString(KEY_GROQ_MODEL, model).apply()
         _settings.value = current.copy(groqModel = model)
+    }
+
+    fun setBrainOrder(order: List<CloudBrain>) {
+        val value = AppSettings.normalizeOrder(order)
+        prefs.edit().putString(KEY_BRAIN_ORDER, value.joinToString(",") { it.name }).apply()
+        _settings.value = current.copy(brainOrder = value)
+    }
+
+    fun saveExtraKey(value: String) {
+        secure.put(KEY_EXTRA, value.trim())
+        _settings.value = current.copy(extraKey = value.trim())
+    }
+
+    /** Switching provider also resets the model to that provider's default. */
+    fun setExtraProvider(provider: ExtraProvider) {
+        val model = if (provider == current.extraProvider) current.extraModel else provider.defaultModel
+        prefs.edit()
+            .putString(KEY_EXTRA_PROVIDER, provider.name)
+            .putString(KEY_EXTRA_MODEL, model)
+            .apply()
+        _settings.value = current.copy(extraProvider = provider, extraModel = model)
+    }
+
+    fun setExtraModel(value: String) {
+        val model = value.trim()
+        prefs.edit().putString(KEY_EXTRA_MODEL, model).apply()
+        _settings.value = current.copy(extraModel = model)
+    }
+
+    fun setExtraBaseUrl(value: String) {
+        val url = value.trim()
+        prefs.edit().putString(KEY_EXTRA_URL, url).apply()
+        _settings.value = current.copy(extraBaseUrl = url)
+    }
+
+    fun setSlowSwitchSeconds(seconds: Int) {
+        val value = seconds.coerceIn(0, 300)
+        prefs.edit().putInt(KEY_SLOW_SWITCH, value).apply()
+        _settings.value = current.copy(slowSwitchSeconds = value)
     }
 
     fun setModel(value: String) {
@@ -255,6 +347,8 @@ class SettingsStore(context: Context) {
         val approval = runCatching {
             ApprovalMode.valueOf(prefs.getString(KEY_APPROVAL, null) ?: "")
         }.getOrDefault(ApprovalMode.MANUAL)
+        val extraProvider = ExtraProvider.entries
+            .firstOrNull { it.name == prefs.getString(KEY_EXTRA_PROVIDER, null) } ?: ExtraProvider.CEREBRAS
         return AppSettings(
             geminiKey = secure.get(KEY_GEMINI).orEmpty(),
             composioKey = secure.get(KEY_COMPOSIO).orEmpty(),
@@ -286,7 +380,16 @@ class SettingsStore(context: Context) {
             briefingMinute = prefs.getInt(KEY_BRIEFING_MINUTE, 30),
             hideTransactions = prefs.getBoolean(KEY_HIDE_TX, false),
             voiceReadReplies = prefs.getBoolean(KEY_VOICE_READ, true),
-            voiceHandsFree = prefs.getBoolean(KEY_VOICE_HANDS_FREE, true)
+            voiceHandsFree = prefs.getBoolean(KEY_VOICE_HANDS_FREE, true),
+            brainOrder = AppSettings.normalizeOrder(
+                prefs.getString(KEY_BRAIN_ORDER, null).orEmpty().split(',')
+                    .mapNotNull { name -> CloudBrain.entries.firstOrNull { it.name == name.trim() } }
+            ),
+            extraProvider = extraProvider,
+            extraKey = secure.get(KEY_EXTRA).orEmpty(),
+            extraModel = prefs.getString(KEY_EXTRA_MODEL, null) ?: extraProvider.defaultModel,
+            extraBaseUrl = prefs.getString(KEY_EXTRA_URL, null).orEmpty(),
+            slowSwitchSeconds = prefs.getInt(KEY_SLOW_SWITCH, AppSettings.DEFAULT_SLOW_SWITCH_SECONDS)
         )
     }
 
@@ -323,5 +426,11 @@ class SettingsStore(context: Context) {
         const val KEY_HIDE_TX = "budget_hide_transactions"
         const val KEY_VOICE_READ = "voice_read_replies"
         const val KEY_VOICE_HANDS_FREE = "voice_hands_free"
+        const val KEY_BRAIN_ORDER = "brain_order"
+        const val KEY_EXTRA = "extra_key"
+        const val KEY_EXTRA_PROVIDER = "extra_provider"
+        const val KEY_EXTRA_MODEL = "extra_model"
+        const val KEY_EXTRA_URL = "extra_base_url"
+        const val KEY_SLOW_SWITCH = "slow_switch_seconds"
     }
 }

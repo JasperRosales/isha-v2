@@ -1,5 +1,8 @@
 package dev.jasper.ishav2.net
 
+import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -63,6 +66,16 @@ object Http {
         return body.take(500)
     }
 }
+
+/**
+ * Cancels this blocking call as soon as [job] starts cancelling. A plain
+ * invokeOnCompletion only fires once the job has finished, which a call stuck
+ * in execute() never lets it do, so Stop (or a slow-brain switch) would hang
+ * until the read timeout.
+ */
+@OptIn(InternalCoroutinesApi::class)
+fun Call.cancelWith(job: Job?): DisposableHandle? =
+    job?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) { runCatching { cancel() } }
 
 suspend fun Call.awaitResponse(): Response = suspendCancellableCoroutine { continuation ->
     enqueue(object : Callback {

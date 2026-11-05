@@ -44,7 +44,7 @@ class ChatViewModel(private val container: AppContainer) : ViewModel() {
         container.settings.settings,
         container.network.online,
         container.models.installed,
-        container.runner.groqLimitedUntil
+        container.runner.limitedUntil
     ) { _, _, _, _ -> container.runner.plannedBrain() }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), container.runner.plannedBrain())

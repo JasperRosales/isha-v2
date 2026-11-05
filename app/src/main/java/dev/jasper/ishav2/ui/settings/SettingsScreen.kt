@@ -104,6 +104,9 @@ fun SettingsScreen(
     val testingGemini by vm.testingGemini.collectAsStateWithLifecycle()
     val testingComposio by vm.testingComposio.collectAsStateWithLifecycle()
     val testingGroq by vm.testingGroq.collectAsStateWithLifecycle()
+    val testingExtra by vm.testingExtra.collectAsStateWithLifecycle()
+    val extraModels by vm.extraModels.collectAsStateWithLifecycle()
+    val limitedUntil by vm.limitedUntil.collectAsStateWithLifecycle()
     val cleared by vm.cleared.collectAsStateWithLifecycle()
     val memory by vm.memory.collectAsStateWithLifecycle()
     val installedModels by vm.installedModels.collectAsStateWithLifecycle()
@@ -174,9 +177,18 @@ fun SettingsScreen(
         ) {
             item { SectionLabel("Brain") }
             item {
+                BrainPriorityCard(
+                    settings = settings,
+                    limitedUntil = limitedUntil,
+                    onMove = vm::moveBrain,
+                    onRetry = vm::retryBrain,
+                    onSlowSwitch = vm::setSlowSwitch
+                )
+            }
+            item {
                 SettingsCard(
-                    title = "Main brain · Groq",
-                    subtitle = "Answers every chat first. Stored encrypted on this phone."
+                    title = "Groq",
+                    subtitle = "Fast, free tier with tight per-minute limits. Stored encrypted on this phone."
                 ) {
                     KeyField(
                         value = groqKey,
@@ -248,8 +260,8 @@ fun SettingsScreen(
 
             item {
                 SettingsCard(
-                    title = "Backup brain · Gemini",
-                    subtitle = "Takes over when Groq's free limit runs out or Groq is down, and reads images and PDFs. Stored encrypted on this phone."
+                    title = "Gemini",
+                    subtitle = "The only brain here that reads images and PDFs. Stored encrypted on this phone."
                 ) {
                     KeyField(
                         value = geminiKey,
@@ -345,6 +357,19 @@ fun SettingsScreen(
             }
 
             item {
+                ExtraBrainCard(
+                    settings = settings,
+                    testing = testingExtra,
+                    models = extraModels,
+                    onProvider = vm::setExtraProvider,
+                    onSaveKey = vm::saveExtraKey,
+                    onTest = vm::testExtra,
+                    onModel = vm::setExtraModel,
+                    onBaseUrl = vm::setExtraBaseUrl
+                )
+            }
+
+            item {
                 val active = installedModels.firstOrNull { it.id == settings.localModelId }
                 SettingsCard(
                     title = "Offline brain",
@@ -352,8 +377,8 @@ fun SettingsScreen(
                 ) {
                     Text(
                         text = when (settings.brainMode) {
-                            BrainMode.AUTO -> "Automatic: Groq/Gemini online, on-device offline"
-                            BrainMode.ONLINE -> "Always online (Groq, then Gemini)"
+                            BrainMode.AUTO -> "Automatic: cloud brains online, on-device offline"
+                            BrainMode.ONLINE -> "Always online (cloud brains in priority order)"
                             BrainMode.OFFLINE -> "Always offline (on-device)"
                         },
                         color = IshaInk,
@@ -792,7 +817,7 @@ fun SettingsScreen(
                     subtitle = "A private assistant that runs only on this phone. No PC server, no analytics."
                 ) {
                     Text(
-                        text = "Network calls go to Groq (then Google Gemini) for replies and to Composio only if you add a key. Web search and page reads go directly from this phone.",
+                        text = "Network calls go to the cloud brains you set up (Groq, Google Gemini, your extra brain) for replies and to Composio only if you add a key. Web search and page reads go directly from this phone.",
                         color = IshaMuted,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -929,7 +954,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsCard(
+internal fun SettingsCard(
     title: String,
     subtitle: String? = null,
     content: @Composable ColumnScope.() -> Unit
@@ -994,7 +1019,7 @@ private fun VoiceToggle(
 }
 
 @Composable
-private fun KeyField(
+internal fun KeyField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
@@ -1057,7 +1082,7 @@ private fun composioExplanation(mode: ComposioKeyMode): String = when (mode) {
     ComposioKeyMode.UNKNOWN -> "That prefix is not recognised. It should start with ck_ or ak_."
 }
 
-private fun openBrowser(context: Context, url: String) {
+internal fun openBrowser(context: Context, url: String) {
     runCatching {
         context.startActivity(
             Intent(Intent.ACTION_VIEW, Uri.parse(url))

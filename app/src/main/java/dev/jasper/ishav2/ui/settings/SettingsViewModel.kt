@@ -6,6 +6,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.jasper.ishav2.agent.AppContainer
 import dev.jasper.ishav2.data.ApprovalMode
+import dev.jasper.ishav2.data.CloudBrain
+import dev.jasper.ishav2.data.ExtraProvider
 import dev.jasper.ishav2.worker.BriefingWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -47,7 +49,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             when {
                 value.isNotBlank() -> "Groq key saved."
                 container.settings.current.hasGroqKey -> "Using the built-in Groq key."
-                else -> "Groq key removed · Gemini will answer."
+                else -> "Groq key removed · the next brain will answer."
             }
         )
     }
@@ -55,6 +57,83 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setGroqModel(value: String) {
         container.settings.setGroqModel(value)
         _events.tryEmit("Groq model set to ${container.settings.current.groqModel}")
+    }
+
+    /** Cooldowns per cloud brain, shown in the priority list. */
+    val limitedUntil = container.runner.limitedUntil
+
+    private val _testingExtra = MutableStateFlow(false)
+    val testingExtra = _testingExtra.asStateFlow()
+
+    /** Models the extra brain's key can use, filled by its Test button. */
+    private val _extraModels = MutableStateFlow<List<String>>(emptyList())
+    val extraModels = _extraModels.asStateFlow()
+
+    /** Moves [brain] one step up (-1) or down (+1) in the priority list. */
+    fun moveBrain(brain: CloudBrain, delta: Int) {
+        val order = container.settings.current.brainOrder.toMutableList()
+        val from = order.indexOf(brain)
+        val to = (from + delta).coerceIn(0, order.lastIndex)
+        if (from < 0 || from == to) return
+        order.removeAt(from)
+        order.add(to, brain)
+        container.settings.setBrainOrder(order)
+        val s = container.settings.current
+        _events.tryEmit("Order: " + s.brainOrder.joinToString(" → ") { s.brainLabel(it) })
+    }
+
+    fun retryBrain(brain: CloudBrain) {
+        container.runner.clearLimit(brain)
+        _events.tryEmit("${container.settings.current.brainLabel(brain)} will be tried again.")
+    }
+
+    fun setSlowSwitch(seconds: Int) {
+        container.settings.setSlowSwitchSeconds(seconds)
+        _events.tryEmit(if (seconds == 0) "Slow-reply switch off." else "Switch brains after ${seconds}s with no reply.")
+    }
+
+    fun saveExtraKey(value: String) {
+        container.settings.saveExtraKey(value)
+        container.runner.clearLimit(CloudBrain.EXTRA)
+        _events.tryEmit(if (value.isBlank()) "Extra brain key removed." else "Extra brain key saved.")
+    }
+
+    fun setExtraProvider(provider: ExtraProvider) {
+        container.settings.setExtraProvider(provider)
+        _extraModels.value = emptyList()
+        container.runner.clearLimit(CloudBrain.EXTRA)
+    }
+
+    fun setExtraModel(value: String) {
+        container.settings.setExtraModel(value)
+        container.runner.clearLimit(CloudBrain.EXTRA)
+        _events.tryEmit("Extra brain model set to ${value.trim()}")
+    }
+
+    fun setExtraBaseUrl(value: String) {
+        container.settings.setExtraBaseUrl(value)
+        container.runner.clearLimit(CloudBrain.EXTRA)
+        _events.tryEmit("Base URL saved.")
+    }
+
+    fun testExtra() {
+        if (_testingExtra.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _testingExtra.value = true
+            try {
+                val models = container.extra.listModels()
+                _extraModels.value = models
+                val current = container.extra.model
+                _events.emit(
+                    if (models.contains(current)) "${container.extra.name} works · ${models.size} models"
+                    else "${container.extra.name} works, but \"$current\" isn't listed. Pick a model below."
+                )
+            } catch (error: Exception) {
+                _events.emit(error.message ?: "Test failed.")
+            } finally {
+                _testingExtra.value = false
+            }
+        }
     }
 
     fun testGroq() {

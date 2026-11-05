@@ -28,6 +28,7 @@ import dev.jasper.ishav2.data.SettingsStore
 import dev.jasper.ishav2.net.ComposioManager
 import dev.jasper.ishav2.net.ComposioMcp
 import dev.jasper.ishav2.net.ComposioRest
+import dev.jasper.ishav2.net.ExtraClient
 import dev.jasper.ishav2.net.GroqClient
 import dev.jasper.ishav2.net.GeminiClient
 import dev.jasper.ishav2.util.FileStore
@@ -67,6 +68,8 @@ class AppContainer(context: Context) {
     val approvals = ApprovalBroker()
     val gemini = GeminiClient(settings)
     val groq = GroqClient(settings)
+    /** Optional third brain (Cerebras, OpenRouter, …). */
+    val extra = ExtraClient(settings)
     /** Practice exams written from the student's own notes. */
     val exams = ExamStore(File(appContext.filesDir, "exams.json"))
     val examGenerator = ExamGenerator(settings, groq, gemini)
@@ -79,7 +82,7 @@ class AppContainer(context: Context) {
         deadlines, mailDigest
     )
     val runner = AgentRunner(
-        settings, groq, gemini, composio, nativeTools, approvals,
+        settings, groq, gemini, extra, composio, nativeTools, approvals,
         memory, models, localLlm, network, budgetAssistant, deadlines, mailDigest
     )
 

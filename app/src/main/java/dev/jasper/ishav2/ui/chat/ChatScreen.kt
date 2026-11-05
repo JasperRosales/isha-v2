@@ -657,10 +657,15 @@ private fun topSubtitle(
     busy -> "typing…"
     brain is Brain.Local -> "Offline · ${brain.model.name}"
     brain is Brain.Missing -> "Not set up yet"
-    brain is Brain.Gemini -> if (connected) "Online · Gemini (backup) · $toolCount app tools" else "Online · Gemini (backup)"
-    connected -> "Online · Groq · $toolCount app tools ready"
-    hasError -> "Online · Groq · apps not connected"
-    else -> "Online · Groq"
+    brain is Brain.Cloud -> {
+        val name = if (brain.backup) "${brain.label} (backup)" else brain.label
+        when {
+            connected -> "Online · $name · $toolCount app tools ready"
+            hasError -> "Online · $name · apps not connected"
+            else -> "Online · $name"
+        }
+    }
+    else -> "Online"
 }
 
 /** Bring the last item in, then scroll to the true end so long replies stay visible. */

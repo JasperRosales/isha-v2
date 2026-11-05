@@ -32,10 +32,15 @@ import dev.jasper.ishav2.net.GeminiInlineData
 import dev.jasper.ishav2.net.GeminiPart
 import dev.jasper.ishav2.net.GeminiRequest
 import dev.jasper.ishav2.net.GeminiTool
+import dev.jasper.ishav2.data.CloudBrain
+import dev.jasper.ishav2.net.ChatCompletionsClient
+import dev.jasper.ishav2.net.ExtraClient
 import dev.jasper.ishav2.net.GroqClient
 import dev.jasper.ishav2.net.Http
 import dev.jasper.ishav2.net.SchemaSanitizer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -54,6 +59,7 @@ class AgentRunner(
     private val settings: SettingsStore,
     private val groq: GroqClient,
     private val gemini: GeminiClient,
+    private val extra: ExtraClient,
     private val composio: ComposioManager,
     private val nativeTools: NativeTools,
     private val approvals: ApprovalBroker,
@@ -71,27 +77,43 @@ class AgentRunner(
     }
 
     /**
-     * Until when Groq is skipped (epoch ms) because its free limit ran out.
-     * While it is in the future, cloud replies go straight to Gemini instead
-     * of burning a request on another 429.
+     * Until when each cloud brain is skipped (epoch ms) after it hit a limit,
+     * failed or stalled. While a time is in the future, replies go to the next
+     * brain in the user's priority list instead of burning another request.
      */
-    private val _groqLimitedUntil = MutableStateFlow(0L)
-    val groqLimitedUntil: StateFlow<Long> = _groqLimitedUntil.asStateFlow()
+    private val _limitedUntil = MutableStateFlow<Map<CloudBrain, Long>>(emptyMap())
+    val limitedUntil: StateFlow<Map<CloudBrain, Long>> = _limitedUntil.asStateFlow()
 
-    private fun groqLimited(): Boolean = System.currentTimeMillis() < _groqLimitedUntil.value
+    private fun isLimited(brain: CloudBrain, now: Long = System.currentTimeMillis()): Boolean =
+        now < (_limitedUntil.value[brain] ?: 0L)
+
+    /** Lets the user retry a cooling-down brain right away. */
+    fun clearLimit(brain: CloudBrain) {
+        _limitedUntil.value = _limitedUntil.value - brain
+    }
 
     /**
-     * Groq first; Gemini when Groq has no key, is rate-limited, or the latest
-     * message carries images/PDFs/audio (Groq's chat models only read text).
+     * Configured cloud brains in the order to try them: the user's priority
+     * order, with brains on cooldown moved to the end (soonest-ready first).
+     * When the latest message carries images/PDFs/audio, Gemini goes first:
+     * it is the only brain here that reads them.
      */
-    private fun cloudBrain(conversation: Conversation? = null): Brain? {
+    fun cloudQueue(conversation: Conversation? = null): List<CloudBrain> {
         val current = settings.current
+        val now = System.currentTimeMillis()
+        val (cooling, ready) = current.brainOrder.filter { current.hasKey(it) }.partition { isLimited(it, now) }
+        val queue = ready + cooling.sortedBy { _limitedUntil.value[it] ?: 0L }
         val needsMedia = conversation?.let { latestTurnHasMedia(it) } == true
-        return when {
-            current.hasGroqKey && !(current.hasGeminiKey && (groqLimited() || needsMedia)) -> Brain.Groq
-            current.hasGeminiKey -> Brain.Gemini
-            else -> null
-        }
+        return if (needsMedia && CloudBrain.GEMINI in queue) listOf(CloudBrain.GEMINI) + (queue - CloudBrain.GEMINI) else queue
+    }
+
+    private fun cloudBrain(conversation: Conversation? = null): Brain.Cloud? =
+        cloudQueue(conversation).firstOrNull()?.let(::cloud)
+
+    private fun cloud(id: CloudBrain): Brain.Cloud {
+        val current = settings.current
+        val first = current.brainOrder.firstOrNull { current.hasKey(it) }
+        return Brain.Cloud(id, current.brainLabel(id), backup = id != first)
     }
 
     private fun latestTurnHasMedia(conversation: Conversation): Boolean {
@@ -111,7 +133,7 @@ class AgentRunner(
                 "Offline mode is on, but no on-device model is selected. Download one in Offline models."
             )
             BrainMode.ONLINE -> cloud ?: Brain.Missing(
-                "Add a Groq (or backup Gemini) API key in Settings, or switch to offline mode."
+                "Add a Groq, Gemini or extra brain API key in Settings, or switch to offline mode."
             )
             BrainMode.AUTO -> when {
                 cloud != null && network.isOnline() -> cloud
@@ -122,20 +144,46 @@ class AgentRunner(
         }
     }
 
-    /** Groq failed in a way Gemini can cover: limits, outage, a bad tool call, or a Groq-only network problem. */
-    private fun shouldFailOver(error: Exception): Boolean {
-        if (!settings.current.hasGeminiKey) return false
-        return when (error) {
-            is ApiException -> error.code == 429 || error.code == 413 || error.code == 400 || error.code >= 500
-            is IOException -> network.isOnline()
-            else -> false
-        }
+    /**
+     * The brain failed in a way the next one can cover: limits, outage, a bad
+     * key/model, a bad tool call, a stall, or a provider-only network problem.
+     */
+    private fun shouldFailOver(error: Exception): Boolean = when (error) {
+        is SlowBrainException -> true
+        is ApiException -> error.code in FAILOVER_CODES || error.code >= 500
+        is IOException -> network.isOnline()
+        else -> false
     }
 
-    private fun markGroqLimited(error: Exception) {
+    private fun markLimited(brain: CloudBrain, error: Exception) {
         val api = error as? ApiException
-        val backoff = api?.retryAfterMs ?: if (api?.code == 429 || api?.code == 413) 60_000L else 30_000L
-        _groqLimitedUntil.value = System.currentTimeMillis() + backoff
+        val backoff = api?.retryAfterMs ?: when {
+            error is SlowBrainException -> 2 * 60_000L
+            api?.code == 429 || api?.code == 413 -> 60_000L
+            api?.code == 401 || api?.code == 403 || api?.code == 404 -> 10 * 60_000L
+            else -> 30_000L
+        }
+        _limitedUntil.value = _limitedUntil.value + (brain to System.currentTimeMillis() + backoff)
+    }
+
+    /**
+     * Runs one streamed step, but gives up with [SlowBrainException] if nothing
+     * at all has arrived after [seconds] (0 = wait as long as it takes).
+     */
+    private suspend fun <T> withSlowGuard(streamer: Streamer, seconds: Int, block: suspend () -> T): T {
+        if (seconds <= 0) return block()
+        return coroutineScope {
+            val work = async { block() }
+            val deadline = System.currentTimeMillis() + seconds * 1000L
+            while (!work.isCompleted) {
+                if (!streamer.started && System.currentTimeMillis() >= deadline) {
+                    work.cancel()
+                    throw SlowBrainException(seconds)
+                }
+                withTimeoutOrNull(250) { work.join() }
+            }
+            work.await()
+        }
     }
 
     /**
@@ -173,9 +221,11 @@ class AgentRunner(
                 listener.onPersist()
                 return
             }
-            Brain.Groq, Brain.Gemini -> Unit
+            is Brain.Cloud -> Unit
         }
-        var provider: Brain = plannedBrain(conversation)
+        // Brains still to try this turn, in priority order.
+        val queue = ArrayDeque(cloudQueue(conversation))
+        var provider: CloudBrain = queue.removeFirstOrNull() ?: return
 
         var currentModel: ChatMessage? = null
         try {
@@ -187,7 +237,7 @@ class AgentRunner(
                     role = Role.MODEL,
                     parts = mutableListOf(),
                     status = MessageStatus.STREAMING,
-                    brain = if (provider == Brain.Groq) "Groq" else "Gemini"
+                    brain = settings.current.brainLabel(provider)
                 )
                 currentModel = modelMessage
                 conversation.messages += modelMessage
@@ -202,19 +252,28 @@ class AgentRunner(
                     }
                 }
 
+                val streamer = Streamer(modelMessage, listener)
+                // Only watch for stalls when there is another brain to switch to.
+                val slowSeconds = if (queue.isEmpty()) 0 else settings.current.slowSwitchSeconds
                 val calls = try {
-                    if (provider == Brain.Groq) streamGroq(conversation, modelMessage, listener, useTools)
-                    else streamGemini(conversation, modelMessage, listener, useTools)
+                    withSlowGuard(streamer, slowSeconds) {
+                        when (provider) {
+                            CloudBrain.GEMINI -> streamGemini(conversation, modelMessage, streamer, useTools)
+                            CloudBrain.GROQ -> streamChat(groq, conversation, modelMessage, streamer, useTools)
+                            CloudBrain.EXTRA -> streamChat(extra, conversation, modelMessage, streamer, useTools)
+                        }
+                    }
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
-                    // Groq's free limit is spent (or Groq is down): hand this
-                    // same step to Gemini. The conversation so far, tool calls
-                    // included, carries over.
-                    if (provider == Brain.Groq && modelMessage.parts.isEmpty() && shouldFailOver(error)) {
-                        markGroqLimited(error)
+                    // This brain's limit is spent, it is down or it stalled:
+                    // hand the same step to the next brain in the priority
+                    // list. The conversation so far, tool calls included,
+                    // carries over.
+                    if (queue.isNotEmpty() && modelMessage.parts.isEmpty() && shouldFailOver(error)) {
+                        markLimited(provider, error)
                         conversation.messages.remove(modelMessage)
                         listener.onUpdate()
-                        provider = Brain.Gemini
+                        provider = queue.removeFirst()
                         step--
                         continue
                     }
@@ -363,6 +422,15 @@ class AgentRunner(
         var visibleText = false
             private set
 
+        /** Anything at all (text, thoughts, tool-call pieces) has arrived. */
+        @Volatile
+        var started = false
+            private set
+
+        fun touch() {
+            started = true
+        }
+
         fun tick(force: Boolean = false) {
             val now = System.currentTimeMillis()
             if (force || now - lastUpdate > 40) {
@@ -401,12 +469,11 @@ class AgentRunner(
     private suspend fun streamGemini(
         conversation: Conversation,
         modelMessage: ChatMessage,
-        listener: Listener,
+        streamer: Streamer,
         useTools: Boolean
     ): List<Part.ToolCall> {
         val calls = mutableListOf<Part.ToolCall>()
         var finishReason: String? = null
-        val streamer = Streamer(modelMessage, listener)
         fun tick(force: Boolean = false) = streamer.tick(force)
         fun appendText(value: String, thought: Boolean) = streamer.appendText(value, thought)
 
@@ -427,6 +494,7 @@ class AgentRunner(
         )
 
         gemini.stream(request) { chunk ->
+            streamer.touch()
             chunk.promptFeedback?.blockReason?.let { reason ->
                 throw ApiException(400, "Gemini blocked this request ($reason).")
             }
@@ -471,15 +539,15 @@ class AgentRunner(
         return calls
     }
 
-    /** Same turn as [streamGemini], answered by Groq (the main brain). */
-    private suspend fun streamGroq(
+    /** Same turn as [streamGemini], answered by an OpenAI-compatible brain (Groq or the extra one). */
+    private suspend fun streamChat(
+        client: ChatCompletionsClient,
         conversation: Conversation,
         modelMessage: ChatMessage,
-        listener: Listener,
+        streamer: Streamer,
         useTools: Boolean
     ): List<Part.ToolCall> {
         val calls = mutableListOf<Part.ToolCall>()
-        val streamer = Streamer(modelMessage, listener)
         val tools = buildJsonArray {
             for (tool in toolSpecs(useTools)) {
                 add(buildJsonObject {
@@ -493,9 +561,10 @@ class AgentRunner(
             }
         }
         val system = buildSystemPrompt(settings.current, composio.status.value, memory.facts.value)
-        val finishReason = groq.stream(
+        val finishReason = client.stream(
             messages = buildGroqMessages(system, conversation.messages.dropLast(1)),
             tools = tools,
+            onEvent = streamer::touch,
             onText = { streamer.appendText(it) },
             onToolCall = { tc ->
                 val call = Part.ToolCall(
@@ -509,9 +578,9 @@ class AgentRunner(
             }
         )
         streamer.tick(force = true)
-        if (finishReason == "content_filter") throw ApiException(400, "Groq stopped this reply (content filter).")
+        if (finishReason == "content_filter") throw ApiException(400, "${client.name} stopped this reply (content filter).")
         if (calls.isEmpty() && !streamer.visibleText) {
-            throw ApiException(502, "Groq returned an empty reply. Try again.")
+            throw ApiException(502, "${client.name} returned an empty reply. Try again.")
         }
         return calls
     }
@@ -810,12 +879,17 @@ class AgentRunner(
         const val MAX_TEXT_CHARS = 100_000
         const val MAX_INLINE_BYTES = 12L * 1024 * 1024
         const val SKIP_SIGNATURE = "skip_thought_signature_validator"
+        /** Errors the next brain can cover: bad request/tool call, bad key or model, too large, rate limit. */
+        val FAILOVER_CODES = setOf(400, 401, 403, 404, 408, 413, 429)
     }
 }
 
+/** A brain that hasn't started replying within the slow-switch limit. */
+class SlowBrainException(seconds: Int) : IOException("No reply after $seconds seconds.")
+
 sealed interface Brain {
-    data object Groq : Brain
-    data object Gemini : Brain
+    /** A cloud brain. [backup] is true when it isn't the top configured brain in the priority list. */
+    data class Cloud(val id: CloudBrain, val label: String, val backup: Boolean) : Brain
     data class Local(val model: InstalledModel) : Brain
     data class Missing(val reason: String) : Brain
 }

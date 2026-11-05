@@ -36,7 +36,7 @@ class GeminiClient(private val settings: SettingsStore) {
                     .build()
             )
             val job = currentCoroutineContext()[Job]
-            val handle = job?.invokeOnCompletion { runCatching { call.cancel() } }
+            val handle = call.cancelWith(job)
             try {
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
@@ -111,7 +111,7 @@ class GeminiClient(private val settings: SettingsStore) {
                 .build()
         )
         val job = currentCoroutineContext()[Job]
-        val handle = job?.invokeOnCompletion { runCatching { call.cancel() } }
+        val handle = call.cancelWith(job)
         try {
             call.execute().use { response ->
                 val text = response.body?.string()
