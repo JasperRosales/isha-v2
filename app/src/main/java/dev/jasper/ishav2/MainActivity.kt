@@ -11,6 +11,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleOut
@@ -27,9 +28,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.jasper.ishav2.ui.IshaNav
 import dev.jasper.ishav2.ui.splash.IshaSplash
-import dev.jasper.ishav2.ui.splash.SPLASH_INTRO_MS
 import dev.jasper.ishav2.ui.theme.IshaTheme
-import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -43,7 +42,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val container = (application as IshaApp).container
         handleIntent(intent)
-        requestNotificationPermission()
 
         applySystemBars(dark = container.settings.current.darkTheme)
         // Cold starts get the animated greeting; rotations and deep links don't.
@@ -56,18 +54,19 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by container.settings.settings.collectAsStateWithLifecycle()
             var showSplash by rememberSaveable { mutableStateOf(coldStart) }
+            // The app is composed only once the logo intro has played, so start-up work
+            // can't steal frames from the animation.
+            var appReady by rememberSaveable { mutableStateOf(!coldStart) }
             LaunchedEffect(settings.darkTheme) {
                 applySystemBars(dark = settings.darkTheme)
             }
-            LaunchedEffect(Unit) {
-                if (showSplash) {
-                    delay(SPLASH_MS)
-                    showSplash = false
-                }
+            LaunchedEffect(showSplash) {
+                // Ask after the splash so the dialog doesn't cover the animation.
+                if (!showSplash) requestNotificationPermission()
             }
             IshaTheme(darkTheme = settings.darkTheme) {
                 Box(Modifier.fillMaxSize()) {
-                    IshaNav(
+                    if (appReady) IshaNav(
                         container = container,
                         openInbox = openInbox.value,
                         onInboxOpened = { openInbox.value = false },
@@ -81,9 +80,13 @@ class MainActivity : ComponentActivity() {
                     AnimatedVisibility(
                         visible = showSplash,
                         enter = androidx.compose.animation.EnterTransition.None,
-                        exit = fadeOut(tween(380)) + scaleOut(tween(380), targetScale = 1.06f)
+                        exit = fadeOut(tween(450, easing = FastOutSlowInEasing)) +
+                            scaleOut(tween(450, easing = FastOutSlowInEasing), targetScale = 1.04f)
                     ) {
-                        IshaSplash()
+                        IshaSplash(
+                            onIntroDone = { appReady = true },
+                            onFinished = { showSplash = false }
+                        )
                     }
                 }
             }
@@ -146,6 +149,5 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_BUDGET = "open_budget"
         const val EXTRA_CONVERSATION_ID = "conversation_id"
         private const val REQUEST_NOTIFICATIONS = 1001
-        private const val SPLASH_MS = SPLASH_INTRO_MS + 450L
     }
 }
