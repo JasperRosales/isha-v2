@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.EventAvailable
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -157,6 +158,9 @@ fun DeadlinesScreen(vm: DeadlinesViewModel, onBack: () -> Unit, onOpenChat: () -
         ) {
             data.lastSyncError?.let { error ->
                 item(key = "error") { Banner(error) }
+            }
+            data.tasksError?.let { error ->
+                item(key = "tasks-error") { Banner(error) }
             }
             if (openCount == 0) {
                 item(key = "empty") { EmptyState(hasAny = data.items.isNotEmpty()) }
@@ -378,6 +382,9 @@ private fun DeadlineRow(
         if (item.fromClassroom) {
             Spacer(Modifier.width(6.dp))
             Icon(Icons.Rounded.School, contentDescription = "From Classroom", tint = IshaMuted, modifier = Modifier.size(15.dp))
+        } else if (item.fromTasks) {
+            Spacer(Modifier.width(6.dp))
+            Icon(Icons.Rounded.TaskAlt, contentDescription = "From Google Tasks", tint = IshaMuted, modifier = Modifier.size(15.dp))
         }
     }
 }
@@ -419,8 +426,8 @@ private fun DeadlineDetailDialog(
                     Text(item.notes, color = IshaInk, style = MaterialTheme.typography.bodySmall, maxLines = 8, overflow = TextOverflow.Ellipsis)
                 }
                 Spacer(Modifier.size(2.dp))
-                ActionLine("Add to Google Tasks", onSendToTasks)
-                onOpenLink?.let { ActionLine("Open in Classroom", it) }
+                if (item.taskId == null) ActionLine("Add to Google Tasks", onSendToTasks)
+                onOpenLink?.let { ActionLine(if (item.fromTasks) "Open in Google Tasks" else "Open in Classroom", it) }
                 if (!item.turnedIn) ActionLine(if (item.done) "Mark as not done" else "Mark as done", onToggleDone)
                 ActionLine("Delete", onDelete, danger = true)
             }

@@ -49,7 +49,11 @@ class DeadlinesViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             container.deadlines.delete(item.id)
             _events.tryEmit(
-                if (item.fromClassroom) "Removed. It won't come back on the next sync." else "Deleted."
+                when {
+                    item.fromClassroom -> "Removed. It won't come back on the next sync."
+                    item.taskId != null && container.settings.current.tasksSyncEnabled -> "Deleted here and in Google Tasks."
+                    else -> "Deleted."
+                }
             )
         }
     }

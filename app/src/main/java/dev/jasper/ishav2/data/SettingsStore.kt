@@ -53,6 +53,7 @@ data class AppSettings(
     val gmailLastCheckedAt: Long = 0L,
     val gmailLastMessageId: String? = null,
     val classroomPollingEnabled: Boolean = false,
+    val tasksSyncEnabled: Boolean = true,
     val classroomLastCheckedAt: Long = 0L,
     val classroomLastActivityId: String? = null,
     val brainMode: BrainMode = BrainMode.AUTO,
@@ -268,6 +269,11 @@ class SettingsStore(context: Context) {
         _settings.value = current.copy(gmailLastCheckedAt = at, gmailLastMessageId = messageId)
     }
 
+    fun setTasksSync(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_TASKS_SYNC, enabled).apply()
+        _settings.value = current.copy(tasksSyncEnabled = enabled)
+    }
+
     fun setClassroomPolling(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_CLASS_POLL, enabled).apply()
         _settings.value = current.copy(classroomPollingEnabled = enabled)
@@ -367,6 +373,7 @@ class SettingsStore(context: Context) {
             gmailLastCheckedAt = prefs.getLong(KEY_GMAIL_LAST_AT, 0L),
             gmailLastMessageId = prefs.getString(KEY_GMAIL_LAST_ID, null),
             classroomPollingEnabled = prefs.getBoolean(KEY_CLASS_POLL, false),
+            tasksSyncEnabled = prefs.getBoolean(KEY_TASKS_SYNC, true),
             classroomLastCheckedAt = prefs.getLong(KEY_CLASS_LAST_AT, 0L),
             classroomLastActivityId = prefs.getString(KEY_CLASS_LAST_ID, null),
             brainMode = runCatching {
@@ -414,6 +421,7 @@ class SettingsStore(context: Context) {
         const val KEY_GMAIL_LAST_AT = "gmail_poll_last_at"
         const val KEY_GMAIL_LAST_ID = "gmail_poll_last_id"
         const val KEY_CLASS_POLL = "classroom_poll_enabled"
+        const val KEY_TASKS_SYNC = "google_tasks_sync_enabled"
         const val KEY_CLASS_LAST_AT = "classroom_poll_last_at"
         const val KEY_CLASS_LAST_ID = "classroom_poll_last_id"
         const val KEY_BRAIN = "brain_mode"

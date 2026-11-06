@@ -624,6 +624,26 @@ fun SettingsScreen(
                             enabled = settings.hasComposioKey
                         )
                     }
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Google Tasks", color = IshaInk, style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                text = "Keeps Due in sync with your Google Tasks, both ways",
+                                color = IshaMuted,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                        Switch(
+                            checked = settings.tasksSyncEnabled,
+                            onCheckedChange = vm::setTasksSync,
+                            enabled = settings.hasComposioKey
+                        )
+                    }
                 }
             }
 

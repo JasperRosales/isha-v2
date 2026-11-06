@@ -111,6 +111,7 @@ import dev.jasper.ishav2.ui.components.ApprovalCard
 import dev.jasper.ishav2.ui.components.AssistantMessage
 import dev.jasper.ishav2.ui.components.Composer
 import dev.jasper.ishav2.ui.components.IshaLogo
+import dev.jasper.ishav2.ui.splash.AnimatedLogo
 import dev.jasper.ishav2.ui.components.NeuIconButton
 import dev.jasper.ishav2.ui.components.UserMessage
 import dev.jasper.ishav2.ui.theme.IshaCream
@@ -492,7 +493,7 @@ private fun EmptyChat(
         verticalArrangement = Arrangement.Center
     ) {
         Spacer(Modifier.height(12.dp))
-        WavingAvatar()
+        AnimatedLogo(size = 84.dp)
         Spacer(Modifier.height(16.dp))
         Text(
             text = greeting(),
@@ -558,29 +559,6 @@ private fun EmptyChat(
                 SuggestionRow(text = text, icon = icon, onClick = { onSuggestion(text) })
             }
         }
-    }
-}
-
-@Composable
-private fun WavingAvatar() {
-    val loop = rememberInfiniteTransition(label = "avatar")
-    val bob by loop.animateFloat(
-        initialValue = -3f,
-        targetValue = 3f,
-        animationSpec = infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "bob"
-    )
-    Box(
-        Modifier.graphicsLayer { translationY = bob * density },
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            Modifier
-                .size(96.dp)
-                .clip(CircleShape)
-                .background(IshaAccent.copy(alpha = 0.12f))
-        )
-        IshaLogo(76.dp)
     }
 }
 

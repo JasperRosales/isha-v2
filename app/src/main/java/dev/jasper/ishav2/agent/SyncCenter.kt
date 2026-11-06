@@ -8,6 +8,7 @@ import dev.jasper.ishav2.data.SettingsStore
 import dev.jasper.ishav2.data.plainText
 import dev.jasper.ishav2.net.ClassroomSync
 import dev.jasper.ishav2.net.GmailSync
+import dev.jasper.ishav2.net.GoogleTasksSync
 import dev.jasper.ishav2.util.NetworkMonitor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,9 +29,11 @@ class SyncCenter(
     private val mail: MailDigestStore,
     private val classroom: ClassroomSync,
     private val gmail: GmailSync,
+    private val tasks: GoogleTasksSync,
     private val chat: () -> ChatSession
 ) {
     private val deadlineLock = Mutex()
+    private val tasksLock = Mutex()
     private val mailLock = Mutex()
 
     private val _syncingDeadlines = MutableStateFlow(false)
@@ -39,10 +42,20 @@ class SyncCenter(
     private val _syncingMail = MutableStateFlow(false)
     val syncingMail: StateFlow<Boolean> = _syncingMail.asStateFlow()
 
-    /** @return null on success, or a short reason it didn't sync. */
-    suspend fun syncDeadlines(): String? = deadlineLock.withLock {
-        precheck()?.let { return it }
+    /** Classroom, then Google Tasks. @return null on success, or a short reason it didn't sync. */
+    suspend fun syncDeadlines(): String? {
         _syncingDeadlines.value = true
+        try {
+            val classroomError = syncClassroom()
+            val tasksError = syncTasks()
+            return classroomError ?: tasksError
+        } finally {
+            _syncingDeadlines.value = false
+        }
+    }
+
+    private suspend fun syncClassroom(): String? = deadlineLock.withLock {
+        precheck()?.let { return it }
         try {
             deadlines.mergeClassroom(classroom.fetch())
             null
@@ -52,8 +65,37 @@ class SyncCenter(
             val message = friendly(error, "Classroom")
             deadlines.syncFailed(message)
             message
-        } finally {
-            _syncingDeadlines.value = false
+        }
+    }
+
+    /**
+     * Two-way sync with the default Google Tasks list: deletes queued on the phone,
+     * then pulls the list, merges it and pushes what changed here.
+     */
+    suspend fun syncTasks(): String? = tasksLock.withLock {
+        if (!settings.current.tasksSyncEnabled) return null
+        precheck()?.let { return it }
+        try {
+            for (taskId in deadlines.current.pendingTaskDeletes) {
+                if (tasks.delete(taskId)) deadlines.taskDeleted(taskId)
+            }
+            val pushes = deadlines.mergeTasks(tasks.fetchAll())
+            for ((id, taskId, done) in pushes.status) {
+                tasks.setDone(taskId, done)
+                deadlines.linkTask(id, taskId, done)
+            }
+            for (item in pushes.create) {
+                val taskId = tasks.insert(item)
+                deadlines.linkTask(item.id, taskId, item.isDone)
+            }
+            deadlines.tasksSynced()
+            null
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (error: Exception) {
+            val message = friendly(error, "Google Tasks")
+            deadlines.tasksFailed(message)
+            message
         }
     }
 

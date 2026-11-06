@@ -199,6 +199,18 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    fun setTasksSync(enabled: Boolean) {
+        container.settings.setTasksSync(enabled)
+        if (enabled) {
+            viewModelScope.launch {
+                val error = container.sync.syncTasks()
+                _events.tryEmit(error ?: "Due is now synced with Google Tasks.")
+            }
+        } else {
+            _events.tryEmit("Google Tasks sync turned off.")
+        }
+    }
+
     fun setClassroomPolling(enabled: Boolean) {
         container.settings.setClassroomPolling(enabled)
         if (enabled) {

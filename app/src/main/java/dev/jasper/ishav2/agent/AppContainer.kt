@@ -12,6 +12,7 @@ import dev.jasper.ishav2.data.BudgetStore
 import dev.jasper.ishav2.data.DeadlineStore
 import dev.jasper.ishav2.data.MailDigestStore
 import dev.jasper.ishav2.net.ClassroomSync
+import dev.jasper.ishav2.net.GoogleTasksSync
 import dev.jasper.ishav2.net.ComposioCalls
 import dev.jasper.ishav2.net.GmailSync
 import dev.jasper.ishav2.notify.DeadlineReceiver
@@ -92,9 +93,10 @@ class AppContainer(context: Context) {
     private val composioCalls = ComposioCalls(settings, composio)
     val classroom = ClassroomSync(composioCalls)
     val gmail = GmailSync(composioCalls)
+    val googleTasks = GoogleTasksSync(composioCalls)
 
     /** Classroom deadlines + Gmail digest, saved on the phone for offline use. */
-    val sync = SyncCenter(settings, network, deadlines, mailDigest, classroom, gmail) { chat }
+    val sync = SyncCenter(settings, network, deadlines, mailDigest, classroom, gmail, googleTasks) { chat }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -114,6 +116,19 @@ class AppContainer(context: Context) {
         // don't survive reboots or force-stops) and on every change.
         scope.launch {
             deadlines.data.collect { DeadlineReceiver.sync(appContext, it.items) }
+        }
+        // Push changes made on the phone (added, ticked off, deleted) to Google Tasks
+        // shortly after they happen. Keyed on what's pending, so a failed push
+        // doesn't retry in a loop; the periodic sync picks it up later.
+        scope.launch {
+            deadlines.data
+                .map { DeadlineStore.tasksPending(it) }
+                .distinctUntilChanged()
+                .collectLatest { pending ->
+                    if (pending.isEmpty() || !settings.current.tasksSyncEnabled || !network.isOnline()) return@collectLatest
+                    delay(1_500)
+                    sync.syncTasks()
+                }
         }
         if (settings.current.hasComposioKey) {
             scope.launch { runCatching { composio.ensure() } }
